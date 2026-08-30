@@ -7,7 +7,7 @@
 
    Chay:  node tests/test_dashboard.mjs                                */
 import vm from "node:vm";
-import { boot } from "./harness.mjs";
+import { boot, bodyMarkup } from "./harness.mjs";
 
 let ok = 0; const fail = [];
 const check = (n, c, d = "") => { c ? ok++ : fail.push(`${n}  ${d}`); };
@@ -50,8 +50,45 @@ check("dang mo tram co san -> ô go ID an di",
 check("danh sach tram lay tu config, khong nam trong JS",
   R(bl.ctx, "C.knownChannels.length") === 2);
 
-// cho ca hai nap xong metadata that
-await new Promise((r) => setTimeout(r, 10000));
+// ---- do dai cua so: MOI chu tren trang phai suy ra tu historyHours ----
+// Con so 24 tung nam cung o 9 cho hien thi, nen doi historyHours la trang noi sai
+// ca 9 cho cung luc ma khong gi bao.
+{
+  const h = R(bl.ctx, "C.historyHours");
+  const shown = (sel) => R(bl.ctx, `document.querySelector('${sel}').textContent`);
+  for (const sel of ["#windowLabel", "#brandTagline", "#signalsHint",
+    "#inspectHint", "#recordsTitle", "#recordsHint", "#dlOpt24Title", "#footerWindow"])
+    check(`chu cua so ${sel} theo historyHours`, shown(sel).includes(String(h)),
+      `${sel} = ${shown(sel)}`);
+
+  // Khong con so gio nao viet cung trong phan markup nhin thay duoc.
+  const stray = (bodyMarkup.match(/\b\d{1,3}[- ]hours?\b/gi) || []);
+  check("markup khong con do dai cua so viet cung", stray.length === 0, stray.join(", "));
+
+  // Nut dai hon ca cua so da nap la nut chet.
+  const presets = JSON.parse(R(bl.ctx,
+    "JSON.stringify(document.querySelector('#windowPresets').children.map(x=>x.dataset.windowHours))"));
+  check("co nut ALL", presets[0] === "all", presets.join(","));
+  check("moi bac chon deu ngan hon cua so",
+    presets.slice(1).every((v) => Number(v) < h), `${presets.join(",")} voi h=${h}`);
+}
+
+// Cho ca hai nap xong du lieu that. KHONG dung sleep co dinh: cua so cang dai thi
+// lan nap dau cang lau (72 h vuot tran 8000 ban ghi cua ThingSpeak nen fetchRange
+// phai chia doi thanh nhieu request tuan tu). Mot con so ngu cung se bien "trang
+// nap cham" thanh "test do", tuc la giau di dung thu dang muon do.
+const LOAD_TIMEOUT_MS = 90000;
+const loadStarted = Date.now();
+while (Date.now() - loadStarted < LOAD_TIMEOUT_MS) {
+  if (R(bl.ctx, "rows.length") > 0 && R(sg.ctx, "rows.length") > 0) break;
+  await new Promise((r) => setTimeout(r, 500));
+}
+const loadMs = Date.now() - loadStarted;
+console.log(`\n  nap xong sau ${(loadMs / 1000).toFixed(1)} s`
+  + ` (cua so ${R(bl.ctx, "C.historyHours")} h)`
+  + `  Bao Loc ${R(bl.ctx, "rows.length")} ban ghi`
+  + ` | Sai Gon ${R(sg.ctx, "rows.length")} ban ghi`);
+check("nap xong truoc khi het gio", loadMs < LOAD_TIMEOUT_MS, `${loadMs} ms`);
 
 const groups = (ctx) => R(ctx, "JSON.stringify(MODBUS_GROUPS.map(g=>g.id+':'+g.fields.join('+')))");
 const vol = (ctx) => R(ctx, "Object.keys(VOLATILE).sort().join(',')");
@@ -92,6 +129,21 @@ for (const [name, c] of [["Bao Loc", bl.ctx], ["Sai Gon", sg.ctx]]) {
   check(`${name}: bang suc khoe du 8 field`, R(c, "sensorHealth().length") === 8);
   console.log(`\n  [${name}] ${(v.level || "pending").toUpperCase()} — ${v.title}`);
   console.log(`     ${v.detail.slice(0, 160)}`);
+}
+
+// ---- nhan tooltip phai dung THEO YEU CAU, khong dung san cho moi diem ----
+// renderDetail() chay tren TUNG KHUNG HINH khi keo. Format san nhan cho ca 9.440
+// diem ton 841 ms/khung (do 2026-08-30, cua so 72 h) trong khi nguoi xem chi nhin
+// duoc dung mot nhan. Neu ai do them lai primary/secondary vao luc ve, test nay do.
+{
+  R(sg.ctx, "focusHours='24';renderDetail()");
+  const sample = JSON.parse(R(sg.ctx, "JSON.stringify(focusGeom.points[0])"));
+  check("diem bieu do chi giu toa do, khong giu nhan da format",
+    !("primary" in sample) && !("secondary" in sample), Object.keys(sample).join(","));
+  const label = JSON.parse(R(sg.ctx, "JSON.stringify(pointLabels(focusGeom.points[0]))"));
+  check("pointLabels() van dung ra nhan day du",
+    !!label.primary && !!label.secondary, JSON.stringify(label));
+  R(sg.ctx, "focusHours='all';renderDetail()");
 }
 
 // ================= 3. KENH LA: phai suy bien, khong duoc nem =================

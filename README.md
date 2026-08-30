@@ -69,6 +69,36 @@ mượn nhãn của trạm khác.
 Phần **Diagnostics** chỉ bật khi channel có đủ bốn lệnh Modbus của firmware nhà mình —
 với channel lạ nó tắt hẳn thay vì mô tả một firmware channel đó chưa từng chạy.
 
+### Độ dài cửa sổ live
+
+`historyHours` trong khối config, hiện **72 h**. Đổi một chỗ đó là đủ: mọi chữ trên
+trang nói về độ dài cửa sổ, và cả bộ nút chọn khoảng, đều suy ra từ nó.
+
+Chi phí **nằm ở trình duyệt người xem**, không phải ở máy host — trang là file tĩnh,
+host mạnh hơn không làm nó rẻ đi. Đo 2026-08-30 trên kênh Sài Gòn (nhịp ~27 s):
+
+| Cửa sổ | Bản ghi | Request | Tải về | Thời gian |
+|---|---|---|---|---|
+| 24 h | 3.153 | 1 | 0,61 MB | ~1,0 s |
+| 72 h | 9.441 | 3 | 3,38 MB | ~3,2 s |
+
+Quá 8.000 bản ghi thì ThingSpeak cắt bớt; `fetchRange()` tự chia đôi khoảng thời gian
+đệ quy nên vẫn lấy đủ — đó là lý do 72 h thành 3 request. Trên 4G điện thoại, 3,38 MB
+là con số cảm nhận được.
+
+Chi phí vẽ lại (đo trong Node với DOM giả, **chỉ là phần JavaScript**, chưa tính layout
+và paint thật của trình duyệt):
+
+| Mốc chọn | Điểm | ms/lần vẽ | Kéo được? |
+|---|---|---|---|
+| ALL (72 h) | 9.440 | 94 | không — cả dải đã hiện, thanh trượt bị vô hiệu |
+| 48H | 6.292 | 80 | có |
+| 24H | 3.148 | 56 | có |
+| 6H | 790 | 43 | có |
+
+Ở `ALL` thanh trượt không kéo được (`movable = 0`), nên con số 94 ms chỉ tốn lúc nạp và
+lúc đổi chỉ số, không phải mỗi khung hình.
+
 **Mốc dữ liệu (`dataEpochs`)** cắt bỏ bản ghi cũ khỏi biểu đồ, bảng *và* file CSV. Mỗi
 kênh có mốc và **lý do riêng**, hiện ngay trên trang:
 

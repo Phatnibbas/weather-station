@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.thingspeak.com; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
-<meta name="description" content="Live 24-hour environmental telemetry and station-health monitoring for a public ThingSpeak channel.">
+<meta name="description" content="Live environmental telemetry and station-health monitoring for a public ThingSpeak channel.">
 <title>Station — Live Telemetry</title>
 <script>(function(){var v=null;try{v=localStorage.getItem('vfcd-theme')}catch(_){}if(v==='dark'||(!v&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark')})();</script>
 <style>
@@ -354,7 +354,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
 <body><main class="shell">
 
 <div class="top">
-  <div class="brand"><span class="mark">V</span><span id="brandName">Station<small>public ThingSpeak · 24-hour live view</small></span></div>
+  <div class="brand"><span class="mark">V</span><span id="brandName">Station<small id="brandTagline">public ThingSpeak · live view</small></span></div>
   <div class="channel-picker" role="group" aria-label="ThingSpeak channel selection">
     <label>Station
       <select id="channelSelect" aria-describedby="channelError"></select>
@@ -370,7 +370,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
 
 <section class="livebar" id="liveBar" data-state="loading">
   <div class="status"><span class="dot"></span><div><strong id="statusLabel" role="status" aria-live="polite" aria-atomic="true">Connecting to station</strong><small>Auto refresh every 20 seconds · <span id="countdown" aria-hidden="true">starting…</span></small></div></div>
-  <div class="live-meta"><span>Latest sample<b id="sampleAge">—</b></span><span>History window<b id="windowLabel">24 h</b></span><span>Latest entry<b id="currentEntry">—</b></span></div>
+  <div class="live-meta"><span>Latest sample<b id="sampleAge">—</b></span><span>History window<b id="windowLabel">—</b></span><span>Latest entry<b id="currentEntry">—</b></span></div>
   <div class="live-actions"><button class="btn" id="refresh">Refresh now</button><label class="switch"><input id="auto" type="checkbox" checked> Auto</label></div>
 </section>
 
@@ -398,12 +398,12 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
 <div class="boundary">Public ThingSpeak observations, not calibrated ground truth. Field names come from the selected channel. Known environmental fields receive broad plausibility checks; unknown fields are displayed without invented units or thresholds. <b id="epochNote"></b></div>
 
 <section class="section">
-  <div class="section-head"><div><span class="index">01 / SIGNALS</span><h2 id="signalsTitle">Measurements, one live window</h2></div><p>Select a measurement to inspect the loaded 24-hour signal.</p></div>
+  <div class="section-head"><div><span class="index">01 / SIGNALS</span><h2 id="signalsTitle">Measurements, one live window</h2></div><p id="signalsHint">Select a measurement to inspect the loaded signal.</p></div>
   <div class="cards" id="cards"><div class="empty">Loading sensor history…</div></div>
 </section>
 
 <section class="section" aria-labelledby="inspectionTitle">
-  <div class="section-head"><div><span class="index">02 / INSPECT</span><h2 id="inspectionTitle">Inspect the loaded signal</h2></div><p>Choose a duration, then drag or use the keyboard controls to move through the 24-hour window.</p></div>
+  <div class="section-head"><div><span class="index">02 / INSPECT</span><h2 id="inspectionTitle">Inspect the loaded signal</h2></div><p id="inspectHint">Choose a duration, then drag or use the keyboard controls to move through the window.</p></div>
   <div class="panel">
     <div class="toolbar">
       <div class="controls">
@@ -414,12 +414,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
       <span class="range-note" id="range"></span>
     </div>
     <div class="window-bar">
-      <div class="window-presets" role="group" aria-label="Focus window">
-        <button type="button" data-window-hours="all" aria-pressed="true">ALL</button>
-        <button type="button" data-window-hours="12" aria-pressed="false">12H</button>
-        <button type="button" data-window-hours="6" aria-pressed="false">6H</button>
-        <button type="button" data-window-hours="3" aria-pressed="false">3H</button>
-        <button type="button" data-window-hours="1" aria-pressed="false">1H</button>
+      <div class="window-presets" id="windowPresets" role="group" aria-label="Focus window">
       </div>
       <strong id="selectionLabel">All loaded records</strong>
     </div>
@@ -436,7 +431,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
     </article>
     <article class="overview-module">
       <div class="module-head"><div><b>Loaded-window overview</b><span id="overviewMeta">Every loaded observation remains visible here.</span></div><span class="overview-instruction">Drag the selection or use the controls above</span></div>
-      <svg id="overviewChart" role="img" aria-label="Loaded 24-hour history; drag the highlighted window to move the focus selection"></svg>
+      <svg id="overviewChart" role="img" aria-label="Loaded history; drag the highlighted window to move the focus selection"></svg>
       <div class="overview-axis"><span id="overviewStart">—</span><span id="overviewEnd">—</span></div>
     </article>
     <div class="inspection-stats" id="detailStats"></div>
@@ -444,7 +439,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
 </section>
 
 <section class="section">
-  <div class="section-head"><div><span class="index">03 / RECORDS</span><h2>Current 24-hour records</h2></div><p>Latest first. This table shows the loaded 24-hour window; Download CSV crawls and exports the channel's full history.</p></div>
+  <div class="section-head"><div><span class="index">03 / RECORDS</span><h2 id="recordsTitle">Current records</h2></div><p id="recordsHint">Latest first. Download CSV crawls and exports the channel's full history.</p></div>
   <div class="panel">
     <div class="table-tools">
       <div class="tools-left">
@@ -453,7 +448,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
           <summary class="btn" id="dlSummary" aria-haspopup="menu">⭳ Download CSV</summary>
           <div class="dl-pop" role="menu">
             <button type="button" class="dl-opt" id="dlOptAll" data-scope="all" role="menuitem"><b id="dlOptAllTitle">Full history since reinstall</b><span id="dlOptAllNote">Crawled on demand; large channels can take time and memory</span></button>
-            <button type="button" class="dl-opt" id="dlOpt24" data-scope="24h" role="menuitem"><b>Last 24 hours</b><span>Only the currently loaded window — instant</span></button>
+            <button type="button" class="dl-opt" id="dlOpt24" data-scope="24h" role="menuitem"><b id="dlOpt24Title">Loaded window</b><span>Only the currently loaded window — instant</span></button>
           </div>
         </details>
       </div>
@@ -484,7 +479,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
   </div>
 </section>
 
-<footer class="footer">Public ThingSpeak channel <span id="footerChannel"></span> · live 24-hour window · full-channel CSV available on demand.</footer>
+<footer class="footer">Public ThingSpeak channel <span id="footerChannel"></span> · live <span id="footerWindow"></span> window · full-channel CSV available on demand.</footer>
 </main>
 
 <!-- ══════════════════════════════════════════════════════════════════════
@@ -520,7 +515,20 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
                     gõ bất kỳ ID công khai nào. Thêm trạm mới thì thêm một dòng ở
                     đây, không phải sửa JavaScript.
 
-     historyHours   : Độ dài cửa sổ live, tính ngược từ hiện tại (giờ).
+     historyHours   : Độ dài cửa sổ live, tính ngược từ hiện tại (giờ). MỌI chữ trên
+                      trang nói về độ dài cửa sổ đều suy ra từ đây, kể cả các nút chọn
+                      khoảng — đổi một chỗ này là đủ.
+
+                      GIÁ PHẢI TRẢ, ĐO NGÀY 2026-08-30 trên kênh Sài Gòn (nhịp ~27 s):
+                         24 h -> 3.153 bản ghi | 1 request | 0,61 MB | ~1,0 s
+                         72 h -> 9.441 bản ghi | 3 request | 3,38 MB | ~3,2 s
+                      Chi phí này nằm ở TRÌNH DUYỆT người xem, không phải ở máy host —
+                      trang là file tĩnh, host mạnh hơn không làm nó rẻ đi. Trên 4G
+                      điện thoại, 3,38 MB là con số thật sự cảm nhận được.
+
+                      Quá 8.000 bản ghi thì ThingSpeak cắt bớt; fetchRange() tự chia đôi
+                      khoảng thời gian đệ quy nên vẫn lấy đủ (đó là lý do 72 h thành 3
+                      request). Không có giới hạn cứng nào ở đây, chỉ có đánh đổi.
      pollIntervalMs : Nhịp tự làm mới (ms). ThingSpeak Free tối thiểu 15000.
      calmThresholdMs: Dưới ngưỡng này (m/s) coi là lặng gió, không hiện hướng.
                       0.5 = start wind speed theo datasheet SEN0658.
@@ -545,7 +553,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
     {"id": 3428136, "label": "Sài Gòn"}
   ],
 
-  "historyHours": 24,
+  "historyHours": 72,
   "pollIntervalMs": 20000,
   "calmThresholdMs": 0.5,
 
@@ -703,6 +711,38 @@ function rebuildStationModel(){
 function groupOf(key){return MODBUS_GROUPS.find(g=>g.fields.includes(key))}
 commitFieldModel(buildFieldModel());
 
+/* Mọi chữ nói về độ dài cửa sổ đều SUY RA từ C.historyHours. Con số 24 từng nằm
+   cứng ở 9 chỗ hiển thị — meta, phụ đề thương hiệu, hai câu gợi ý, aria-label biểu đồ
+   tổng quan, tiêu đề mục 03 + câu dưới nó, nút xuất CSV, footer — nên chỉ cần đổi
+   historyHours là trang nói sai ở cả 9 chỗ cùng lúc, mà không gì báo. */
+const windowText=h=>`${h}-hour`;
+function renderWindowCopy(){
+  const h=C.historyHours;
+  $('#windowLabel').textContent=h+' h';
+  $('#brandTagline').textContent=`public ThingSpeak · ${windowText(h)} live view`;
+  $('#signalsHint').textContent=`Select a measurement to inspect the loaded ${windowText(h)} signal.`;
+  $('#inspectHint').textContent=`Choose a duration, then drag or use the keyboard controls to move through the ${windowText(h)} window.`;
+  $('#overviewChart').setAttribute('aria-label',`Loaded ${windowText(h)} history; drag the highlighted window to move the focus selection`);
+  $('#recordsTitle').textContent=`Current ${windowText(h)} records`;
+  $('#recordsHint').textContent=`Latest first. This table shows the loaded ${windowText(h)} window; Download CSV crawls and exports the channel's full history.`;
+  $('#dlOpt24Title').textContent=`Last ${h} hours`;
+  $('#footerWindow').textContent=windowText(h);
+  /* Bậc chọn khoảng cũng phải theo cửa sổ: một nút dài hơn cả cửa sổ đã nạp là nút
+     chết. Ở h = 24 bộ nút ra đúng ALL/12H/6H/3H/1H như bản viết tay trước đây, nên
+     thay đổi này là no-op ở mức cũ — đó là cách kiểm rẻ nhất rằng nó không làm hỏng gì. */
+  const ladder=[168,96,48,24,12,6,3,1].filter(v=>v<h),
+        /* Nhiều hơn 5 thì giữ HAI mốc dài nhất + BA mốc ngắn nhất. Luật đơn giản
+           đủ để nói thành lời, và luôn giữ được 1H — mốc để soi kỹ một sự kiện. */
+        picked=ladder.length<=5?ladder:[ladder[0],ladder[1],...ladder.slice(-3)],
+        host=$('#windowPresets');
+  host.innerHTML='';
+  [['all','ALL'],...picked.map(v=>[String(v),v+'H'])].forEach(([value,text])=>{
+    const button=document.createElement('button');
+    button.type='button';button.dataset.windowHours=value;
+    button.setAttribute('aria-pressed',String(value===String(focusHours)));
+    button.textContent=text;host.append(button);
+  });
+}
 function renderChannelIdentity(){
   document.title=`${C.channel.name||`ThingSpeak ${C.channel.id}`} — Live Telemetry`;
   $('#brandName').childNodes[0].nodeValue=(C.channel.name||`Channel ${C.channel.id}`)+' ';
@@ -792,7 +832,7 @@ const $=s=>document.querySelector(s),
    option đã có sẵn mới chọn đúng được. */
 populateChannelPicker();
 renderChannelIdentity();
-$('#windowLabel').textContent=C.historyHours+' h';
+renderWindowCopy();
 /* The epoch is the only thing that keeps records from an earlier deployment out of the
    charts, the table AND the export. With it unset, "full history" means literally every
    row the channel holds — including any written by a firmware build with a different
@@ -965,7 +1005,7 @@ function renderScalarInspection(key,bounds,w){
   html+=`<circle class="hover-dot" id="focusHover" r="4.5" hidden/>`;
   html+=`<circle class="end-dot" cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="4.5"/>`;
   svg.innerHTML=html;
-  focusGeom={mode:'scalar',W:w,H:h,m,points:g.xy.map(p=>({x:p.x,y:p.y,primary:`${fmt(p.v,cfg.decimals)} ${cfg.unit}`,secondary:shortTime(p.t,$('#zone').value)}))};
+  focusGeom={mode:'scalar',W:w,H:h,m,decimals:cfg.decimals,unit:cfg.unit,points:g.xy.map(p=>({x:p.x,y:p.y,t:p.t,v:p.v}))};
   const s=summary(key,source);
   $('#focusMeta').textContent=`${source.length.toLocaleString()} of ${rows.length.toLocaleString()} loaded records`;
   const clippedText=g.clipped?` · ${g.clipped.toLocaleString()} clipped`:'';
@@ -998,7 +1038,7 @@ function renderWindInspection(bounds,w){
       sector=state.kind==='bearing'?label(state.degrees):state.kind,
       cx=x(row);
     html+=`<circle class="${cls}" data-wind-point data-kind="${state.kind}" data-sector="${sector}" cx="${cx.toFixed(2)}" cy="${y.toFixed(2)}" r="${w<600?2.6:3.2}"/>`;
-    pts.push({x:cx,y,primary:state.text,secondary:shortTime(row.t,$('#zone').value)});
+    pts.push({x:cx,y,t:row.t,text:state.text});
   });
   if(!source.length)html+=`<text class="tick" x="${w/2}" y="${h/2}" text-anchor="middle">No observations in this interval</text>`;
   html+=timeGrid(bounds.selectedStart,bounds.selectedEnd,w,h,{l:m.l,r:m.r,t:m.t,b:9},w<600?3:6);
@@ -1072,6 +1112,23 @@ function nearestPointIndex(points,x){
   if(lo===0)return 0;if(lo===points.length)return points.length-1;
   return Math.abs(points[lo].x-x)<Math.abs(points[lo-1].x-x)?lo:lo-1;
 }
+/* Nhãn tooltip được dựng LÚC HIỆN, không phải lúc vẽ.
+   renderDetail() trước đây format sẵn primary + secondary cho MỌI điểm, tức là
+   9.440 lần fmt() cộng 9.440 lần Intl.DateTimeFormat mỗi lần vẽ lại - mà vẽ lại
+   xảy ra trên TỪNG KHUNG HÌNH khi kéo thanh trượt.
+   Đo 2026-08-30, cửa sổ 72 h, 9.440 điểm:
+       dựng nhãn cho tất cả : 841 ms/khung  -> kéo được khoảng 1 fps
+       chỉ giữ toạ độ       :   5 ms/khung
+   Người xem nhìn được đúng MỘT nhãn tại một thời điểm, nên 9.439 nhãn kia là công
+   đổ đi. Ở cửa sổ 24 h lỗi này đã tồn tại sẵn, chỉ là chưa ai để ý (~3 fps). */
+function pointLabels(point){
+  const geometry=focusGeom;
+  if(!geometry||!point)return{primary:'',secondary:''};
+  return{
+    primary:geometry.mode==='wind'?point.text:`${fmt(point.v,geometry.decimals)} ${geometry.unit}`,
+    secondary:shortTime(point.t,$('#zone').value)
+  };
+}
 function showTip(index){
   if(!focusGeom||!focusGeom.points.length)return;
   const svg=$('#focusChart'),rect=svg.getBoundingClientRect();
@@ -1081,7 +1138,8 @@ function showTip(index){
   if(cross){cross.setAttribute('x1',best.x);cross.setAttribute('x2',best.x);cross.hidden=false}
   if(hover){hover.setAttribute('cx',best.x);hover.setAttribute('cy',best.y);hover.hidden=false}
   const left=best.x/focusGeom.W*rect.width,topPx=best.y/focusGeom.H*rect.height;
-  tip.innerHTML=`<b>${best.primary}</b><br><span class="t-k">${best.secondary}</span>`;
+  const label=pointLabels(best);
+  tip.innerHTML=`<b>${label.primary}</b><br><span class="t-k">${label.secondary}</span>`;
   tip.style.display='block';
   /* Measure after the content is laid out, then place the box so it can never be
      clipped by the shell: flip it under the point when the headroom above is short,
@@ -1105,7 +1163,7 @@ $('#focusChart').addEventListener('keydown',ev=>{
   if(ev.key==='Home')focusCursor=0;else if(ev.key==='End')focusCursor=focusGeom.points.length-1;
   else if(focusCursor<0)focusCursor=ev.key==='ArrowLeft'?focusGeom.points.length-1:0;
   else focusCursor+=ev.key==='ArrowLeft'?-1:1;
-  showTip(focusCursor);const point=focusGeom.points[Math.max(0,Math.min(focusGeom.points.length-1,focusCursor))];$('#chartReading').textContent=`${point.primary}, ${point.secondary}`;
+  showTip(focusCursor);const point=focusGeom.points[Math.max(0,Math.min(focusGeom.points.length-1,focusCursor))];const label=pointLabels(point);$('#chartReading').textContent=`${label.primary}, ${label.secondary}`;
 });
 
 /* ============================================================
@@ -1127,7 +1185,7 @@ function renderTable(){
 }
 
 /* CSV export — crawls the channel's FULL history on demand. The live dashboard
-   stays on the fast 24-hour window; only this button pulls everything, into its
+   stays on the configured live window; only this button pulls everything, into its
    own buffer (never into `rows`), builds the CSV, downloads, and discards it. */
 let csvBusy=false;
 function csvParts(source){
@@ -1153,7 +1211,7 @@ async function exportCSV(scope){
   if(scope==='24h'){                               // instant — the already-loaded window
     if(!rows.length)return;
     saveCSV(rows);
-    flash(`✓ Exported ${rows.length.toLocaleString()} rows (24 h)`,3000);
+    flash(`✓ Exported ${rows.length.toLocaleString()} rows (${C.historyHours} h)`,3000);
     return;
   }
   csvBusy=true;sum.textContent='⏳ Crawling full history…';   // on-demand full crawl
@@ -1422,7 +1480,7 @@ function stationEvents(){
 /* Split into a cached row-derived half and a live time-derived half.
    verdict() runs once a second off the countdown tick, and this used to walk every
    loaded row eight times over, plus sort the whole interval list twice more, on every
-   one of those ticks — a full 24 h window here is a few thousand records. The row
+   one of those ticks — the live window here holds several thousand records. The row
    scans only change when a fetch actually adds rows, so they are keyed on rowsVersion.
    What must NOT be cached is anything derived from the clock: the age of the last good
    value and every level that turns on it. Freezing those is exactly the bug the comment
@@ -1443,7 +1501,7 @@ function sensorHealthBase(){
       recentMissing=recent.filter(row=>!Number.isFinite(row[key])).length,
       /* Out-of-range must be judged on the recent window too. Counting it over the whole
          window let one transient — a single 0.0 dB frame while the sensor warmed up after
-         a power cycle — hold the sensor at "degraded" for the next 24 hours, contradicting
+         a power cycle — hold the sensor at "degraded" for the rest of the window, contradicting
          this card's own promise that state reflects the newest records. */
       recentOutOfRange=recent.filter(row=>Number.isFinite(row[key])&&!usable(key,row[key])).length;
     let lastRow=null;for(let i=rows.length-1;i>=0;i--)if(usable(key,rows[i][key])){lastRow=rows[i];break}
