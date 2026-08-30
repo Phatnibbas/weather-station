@@ -1,0 +1,12 @@
+# Ép LF cho mọi file văn bản, kể cả khi checkout trên Windows.
+#
+# Không phải chuyện thẩm mỹ: tests/test_firmware_recovery.py khoá khối
+# self-recovery của hai firmware phải trùng NHAU TỪNG BYTE. Nếu git checkout
+# một file thành CRLF còn file kia thành LF, test sẽ fail vì lý do không liên
+# quan gì tới nội dung, và người đọc sẽ đi tìm bug ở đúng chỗ không có bug.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary
+*.pdf binary

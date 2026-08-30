@@ -1,0 +1,1532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.thingspeak.com; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="description" content="Live 24-hour environmental telemetry and station-health monitoring for a public ThingSpeak channel.">
+<title>Station — Live Telemetry</title>
+<script>(function(){var v=null;try{v=localStorage.getItem('vfcd-theme')}catch(_){}if(v==='dark'||(!v&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark')})();</script>
+<style>
+/* ============================================================
+   DESIGN TOKENS — one system for all three sections
+   Single accent hue (brand teal) used as the series colour for
+   every single-series chart. Chrome is recessive; data is loud.
+   ============================================================ */
+:root{
+  --plane:#eef2f3;        /* page plane            */
+  --surface:#ffffff;      /* card / chart surface  */
+  --surface-2:#f3f7f8;    /* inset / track         */
+  --ink:#0b1f2b;          /* primary text          */
+  --ink-2:#48606d;        /* secondary text        */
+  --muted:#7a909b;        /* axis / labels         */
+  --line:#dde6ea;         /* hairline grid/border  */
+  --line-2:#c6d5db;       /* control border        */
+  --accent:#0b8a90;       /* series / brand teal   */
+  --accent-ink:#076c71;   /* accent text on surface (contrast-safe) */
+  --accent-soft:color-mix(in srgb,var(--accent) 12%,var(--surface));
+  --good:#0ca35a;
+  --warn:#e2892a;
+  --crit:#d0454f;
+  --navy:#0a2230;         /* hero plane            */
+  --shadow:0 10px 30px rgba(16,40,54,.07);
+  --r:10px;               /* card radius           */
+  --r-s:7px;              /* control radius        */
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  --tab:tabular-nums;
+}
+html.dark{
+  --plane:#081019;
+  --surface:#0e1e2a;
+  --surface-2:#122736;
+  --ink:#eaf6f7;
+  --ink-2:#a4b8c2;
+  --muted:#7f97a3;
+  --line:#1f3441;
+  --line-2:#33505e;
+  --accent:#24c3c8;
+  --accent-ink:#5fe0e4;
+  --accent-soft:color-mix(in srgb,var(--accent) 16%,var(--surface));
+  --good:#22b968;
+  --warn:#ff9a4d;
+  --crit:#ff6d78;
+  --navy:#05121c;
+  --shadow:0 14px 38px rgba(0,0,0,.32);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--plane);color:var(--ink);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button,input,select{font:inherit;color:inherit}
+[hidden]{display:none!important}
+.shell{width:min(1400px,calc(100% - 40px));margin:auto;padding:20px 0 64px}
+
+/* ---- top bar ------------------------------------------------ */
+.top{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:16px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:650;font-size:14px;letter-spacing:.01em}
+.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:var(--accent);color:#fff;font-weight:700;font-size:17px}
+.brand small{display:block;color:var(--muted);font:500 11px/1.3 var(--sans);letter-spacing:0}
+.icon-btn{display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface);cursor:pointer;font-size:16px;transition:border-color .15s}
+.icon-btn:hover{border-color:var(--accent)}
+.channel-picker{display:flex;align-items:flex-end;gap:8px;margin-left:auto}
+.channel-picker label{display:grid;gap:4px;color:var(--muted);font:600 10px var(--sans);letter-spacing:.05em;text-transform:uppercase}
+.channel-picker input{width:160px;min-height:40px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface);padding:0 11px;font:650 14px var(--mono);font-variant-numeric:var(--tab)}
+.channel-picker input:hover,.channel-picker input:focus{border-color:var(--accent)}
+.channel-picker .btn{min-height:40px}
+.channel-error{min-height:16px;color:var(--crit);font:11px var(--sans);text-transform:none;letter-spacing:0}
+
+/* ---- live status bar --------------------------------------- */
+.livebar{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:22px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 16px;box-shadow:var(--shadow);margin-bottom:22px}
+.status{display:flex;align-items:center;gap:12px}
+.dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 5px color-mix(in srgb,var(--muted) 16%,transparent)}
+/* States actually set by setConnection()/refreshStatus(): loading, pending, fresh,
+   stale, error, paused. There used to be a "live" rule here that nothing ever set. */
+.livebar[data-state="pending"] .dot{background:var(--muted);box-shadow:0 0 0 5px color-mix(in srgb,var(--muted) 16%,transparent)}
+.livebar[data-state="fresh"] .dot{background:var(--good);box-shadow:0 0 0 5px color-mix(in srgb,var(--good) 18%,transparent);animation:pulse 2.4s ease-in-out infinite}
+.livebar[data-state="stale"] .dot{background:var(--warn);box-shadow:0 0 0 5px color-mix(in srgb,var(--warn) 18%,transparent)}
+.livebar[data-state="loading"] .dot{background:var(--warn);box-shadow:0 0 0 5px color-mix(in srgb,var(--warn) 18%,transparent)}
+.livebar[data-state="error"] .dot{background:var(--crit);box-shadow:0 0 0 5px color-mix(in srgb,var(--crit) 18%,transparent)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 5px color-mix(in srgb,var(--good) 18%,transparent)}50%{box-shadow:0 0 0 8px color-mix(in srgb,var(--good) 6%,transparent)}}
+.status strong{display:block;font-weight:650;font-size:14px}
+.status small{color:var(--muted);font:12px/1.4 var(--sans)}
+.live-meta{display:flex;gap:24px}
+.live-meta span{color:var(--muted);font-size:11px;letter-spacing:.02em;text-transform:uppercase}
+.live-meta b{display:block;margin-top:3px;color:var(--ink);font:650 14px var(--sans);font-variant-numeric:var(--tab);text-transform:none;letter-spacing:0}
+.live-actions{display:flex;gap:10px;align-items:center}
+.btn{border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface);min-height:38px;padding:0 14px;cursor:pointer;font-weight:550;transition:border-color .15s}
+.btn:hover{border-color:var(--accent)}
+.icon-btn:focus-visible,.btn:focus-visible,.card:focus-visible,.window-presets button:focus-visible,.window-nav button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible,svg[tabindex]:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 42%,transparent);outline-offset:2px}
+.switch{display:flex;gap:8px;align-items:center;border:1px solid var(--line-2);border-radius:var(--r-s);height:38px;padding:0 12px;color:var(--muted);font:550 12px var(--sans)}
+.switch input{accent-color:var(--accent);width:15px;height:15px}
+
+/* ---- hero -------------------------------------------------- */
+.hero{display:grid;grid-template-columns:1.55fr .62fr;gap:32px;background:var(--navy);color:#eef8f9;border-radius:var(--r);padding:clamp(22px,2.6vw,36px);box-shadow:var(--shadow)}
+.eyebrow{color:color-mix(in srgb,var(--accent) 55%,#fff);font:600 11px/1.4 var(--sans);letter-spacing:.06em;text-transform:uppercase}
+.eyebrow span{font-variant-numeric:var(--tab)}
+.hero h1{margin:10px 0 10px;max-width:760px;font:650 clamp(28px,3.7vw,46px)/1.05 var(--sans);letter-spacing:-.02em}
+.hero p{max-width:640px;margin:0;color:#aec3cd;font-size:15px;line-height:1.6}
+.latest-box{align-self:end;border-left:1px solid rgba(255,255,255,.16);padding-left:24px}
+.latest-box .k{color:color-mix(in srgb,var(--accent) 55%,#fff);font:600 11px var(--sans);letter-spacing:.04em;text-transform:uppercase}
+.latest-box b{display:block;margin:8px 0 12px;font:650 22px/1.2 var(--sans);font-variant-numeric:var(--tab)}
+.latest-box small{display:block;color:#aec3cd;font:12px/1.65 var(--sans)}
+.latest-box small strong{color:#eef8f9;font-weight:600;font-variant-numeric:var(--tab)}
+
+/* ---- top stat strip (stat-tile contract) ------------------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow)}
+.stat b{display:block;font:650 clamp(24px,3vw,34px)/1 var(--sans)}
+.stat span{display:block;margin-top:8px;color:var(--muted);font:550 11px var(--sans);letter-spacing:.02em;text-transform:uppercase}
+.health-strip{display:flex;align-items:center;gap:8px 22px;flex-wrap:wrap;margin:0 0 10px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);color:var(--muted);font-size:12px;font-variant-numeric:var(--tab)}
+.health-strip strong{color:var(--ink);font-weight:650}
+
+/* ---- disclaimer -------------------------------------------- */
+.boundary{margin-bottom:8px;padding:12px 16px;border:1px solid color-mix(in srgb,var(--warn) 28%,var(--line));border-left:4px solid var(--warn);border-radius:var(--r-s);background:color-mix(in srgb,var(--warn) 6%,var(--surface));color:var(--ink-2);font-size:13px;line-height:1.55}
+
+/* ---- section scaffold -------------------------------------- */
+.section{margin-top:40px}
+.section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:28px;margin-bottom:18px}
+.section-head h2{margin:6px 0 0;font:650 clamp(22px,2.6vw,30px)/1.1 var(--sans);letter-spacing:-.01em}
+.section-head p{max-width:520px;margin:0;color:var(--muted);text-align:right;font-size:13px;line-height:1.55}
+.index{color:var(--accent-ink);font:650 11px var(--mono);letter-spacing:.1em}
+
+/* ---- signal cards ------------------------------------------ */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.card{appearance:none;text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:16px;color:var(--ink);box-shadow:var(--shadow);cursor:pointer;overflow:hidden;transition:border-color .15s,transform .15s}
+.card:hover{border-color:var(--line-2);transform:translateY(-2px)}
+.card[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+.card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.card-head strong{font:650 15px var(--sans)}
+.card-head small{color:var(--muted);font:11px/1.4 var(--sans);text-align:right;font-variant-numeric:var(--tab)}
+.value{display:block;margin-top:10px;font:650 27px/1 var(--sans)}
+.value small{color:var(--muted);font:550 12px var(--sans)}
+.spark{display:block;width:100%;height:64px;margin-top:12px}
+.spark-empty{display:grid;place-items:center;height:64px;margin-top:12px;color:var(--muted);font:11px var(--sans)}
+.time-edge{display:flex;justify-content:space-between;color:var(--muted);font:11px var(--sans);margin-top:6px;font-variant-numeric:var(--tab)}
+/* ---- wind compass dial (card 02) --------------------------- */
+.wind-compass{display:flex;align-items:center;gap:16px;margin-top:12px}
+.compass{flex:none;width:118px;height:118px}
+.cmp-face{fill:var(--surface-2);stroke:var(--line);stroke-width:1}
+.cmp-inner{fill:none;stroke:var(--line);stroke-width:1;stroke-dasharray:2 4}
+.cmp-tick{stroke:var(--line-2);stroke-width:1.4;stroke-linecap:round}
+.cmp-tick.is-major{stroke:var(--muted);stroke-width:2}
+.cmp-card{fill:var(--muted);font:650 10px var(--sans)}
+.cmp-card.is-n{fill:var(--accent-ink)}
+.cmp-needle{fill:var(--accent)}
+.cmp-tail{fill:var(--line-2)}
+.cmp-hub{fill:var(--surface);stroke:var(--accent);stroke-width:2}
+.cmp-hub.is-idle{stroke:var(--muted)}
+.cmp-idle{fill:var(--muted);font:600 9px var(--sans);letter-spacing:.08em}
+.wind-readout{min-width:0}
+.wind-state{display:block;font:650 22px/1.1 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wind-state.is-idle{font-size:14px;line-height:1.35;white-space:normal}
+.wind-deg{display:block;margin-top:3px;color:var(--accent-ink);font:650 13px var(--mono);font-variant-numeric:var(--tab)}
+.wind-note{display:block;margin-top:9px;color:var(--muted);font:12px/1.45 var(--sans)}
+
+/* ---- shared SVG mark styles (all charts) ------------------- */
+.grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.tick{fill:var(--muted);font:11px var(--sans);font-variant-numeric:var(--tab)}
+.trace{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.spark-area,.focus-area{fill:var(--accent);opacity:.10}
+.end-dot{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+.focus-line{fill:none;stroke:var(--accent);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.overview-line{fill:none;stroke:var(--accent);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.wind-dot{fill:var(--accent);opacity:.8;stroke:var(--surface);stroke-width:1}
+.calm-dot{fill:var(--warn);opacity:.75;stroke:var(--surface);stroke-width:1}
+.na-dot{fill:var(--muted);opacity:.55}
+.crosshair{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.hover-dot{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+
+/* ---- inspection panel -------------------------------------- */
+.panel{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:var(--shadow)}
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.controls{display:flex;gap:10px;flex-wrap:wrap}
+select,input[type="search"]{min-height:38px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface-2);padding:0 12px;transition:border-color .15s}
+select:hover,input[type="search"]:hover{border-color:var(--accent)}
+.range-note{color:var(--muted);font:12px var(--sans);font-variant-numeric:var(--tab)}
+.window-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+.window-presets{display:flex;gap:6px;flex-wrap:wrap}
+.window-presets button{min-width:52px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface-2);color:var(--muted);font:650 11px var(--sans);cursor:pointer;transition:.15s}
+.window-presets button:hover{border-color:var(--accent)}
+.window-presets button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
+.window-bar strong{font:650 13px var(--sans);color:var(--ink-2)}
+.window-nav{display:grid;grid-template-columns:auto minmax(140px,1fr) auto;align-items:center;gap:9px;margin:0 0 14px}
+.window-nav button{height:34px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface-2);color:var(--ink-2);cursor:pointer;padding:0 11px;font:600 11px var(--sans)}
+.window-nav button:hover:not(:disabled){border-color:var(--accent)}
+.window-nav button:disabled,.window-nav input:disabled{opacity:.42;cursor:default}
+.window-nav input{width:100%;accent-color:var(--accent)}
+.focus-module,.overview-module{border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface-2);padding:16px}
+.focus-module{margin-bottom:14px}
+.module-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:10px}
+.module-head b{display:block;font:650 15px var(--sans)}
+.module-head span{display:block;color:var(--muted);font:12px/1.45 var(--sans);margin-top:3px}
+.focus-key{white-space:nowrap;color:var(--ink-2);font:550 12px var(--sans);font-variant-numeric:var(--tab)}
+.focus-key[data-clipped="true"]{color:var(--warn)}
+.focus-module svg,.overview-module svg{display:block;width:100%}
+.focus-module svg{min-height:360px}
+.overview-module svg{min-height:120px}
+.overview-instruction{text-align:right;color:var(--muted);font-size:12px}
+.chart-shell{position:relative;overflow:hidden}
+/* Anchored at the hovered point; flips below it when there is not enough
+   headroom above, so readings near the top edge are never clipped. */
+.tooltip{display:none;position:absolute;z-index:5;pointer-events:none;background:var(--navy);color:#fff;border:1px solid color-mix(in srgb,#fff 14%,var(--navy));border-radius:var(--r-s);padding:8px 11px;font:12px/1.5 var(--sans);box-shadow:var(--shadow);white-space:nowrap;transform:translate(-50%,calc(-100% - 13px))}
+.tooltip[data-flip="below"]{transform:translate(-50%,13px)}
+.tooltip b{font-variant-numeric:var(--tab)}
+.tooltip .t-k{color:color-mix(in srgb,var(--accent) 55%,#fff);font-weight:600}
+.inspection-stats{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;margin-top:16px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden}
+.inspection-stat{min-width:0;background:var(--surface);padding:12px 14px}
+.inspection-stat span{display:block;color:var(--muted);font:550 10px var(--sans);letter-spacing:.02em;text-transform:uppercase}
+.inspection-stat b{display:block;margin-top:6px;font:650 16px var(--sans);font-variant-numeric:var(--tab);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.overview-axis{display:flex;justify-content:space-between;color:var(--muted);font:11px var(--sans);margin-top:4px;font-variant-numeric:var(--tab)}
+.overview-module svg{touch-action:none;-webkit-user-select:none;user-select:none}
+.selection-mask{fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.selection-dim{fill:color-mix(in srgb,var(--plane) 60%,transparent)}
+
+/* ---- records table ----------------------------------------- */
+.table-tools{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.tools-left{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.dl-menu{position:relative}
+.dl-menu>summary{list-style:none;border-color:var(--accent);color:var(--accent-ink);font-weight:600;white-space:nowrap;display:inline-flex;align-items:center}
+.dl-menu>summary::-webkit-details-marker{display:none}
+.dl-menu>summary:hover{background:var(--accent-soft)}
+.dl-menu[open]>summary{background:var(--accent-soft)}
+.dl-pop{position:absolute;z-index:20;top:calc(100% + 6px);left:0;min-width:264px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-s);box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column;gap:2px}
+.dl-opt{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:6px;padding:9px 11px;cursor:pointer;color:var(--ink)}
+.dl-opt:hover:not(:disabled){background:var(--accent-soft)}
+.dl-opt:disabled{opacity:.45;cursor:default}
+.dl-opt b{display:block;font-weight:600;font-size:13px}
+.dl-opt span{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-top:2px;white-space:normal}
+.pager{display:flex;align-items:center;gap:8px;color:var(--muted);font:12px var(--sans);font-variant-numeric:var(--tab)}
+.pager button{height:38px;min-width:40px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface-2);cursor:pointer;transition:border-color .15s}
+.pager button:hover:not(:disabled){border-color:var(--accent)}
+.pager button:disabled{opacity:.4;cursor:default}
+.table-wrap{max-height:640px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-s)}
+.data-table{width:100%;min-width:1220px;border-collapse:collapse;font-size:12.5px;font-variant-numeric:var(--tab)}
+.data-table th,.data-table td{white-space:nowrap;padding:10px 13px;border-bottom:1px solid var(--line);text-align:right}
+.data-table th{color:var(--muted);font:600 10px var(--sans);letter-spacing:.03em;text-transform:uppercase}
+.data-table thead th{position:sticky;top:0;background:var(--surface-2);z-index:3;border-bottom:1px solid var(--line-2)}
+.data-table tbody tr:hover td{background:var(--accent-soft)}
+.data-table th:first-child,.data-table td:first-child{text-align:left;position:sticky;left:0;width:78px}
+.data-table th:nth-child(2),.data-table td:nth-child(2){text-align:left;position:sticky;left:78px}
+.data-table td:first-child{color:var(--accent-ink);font-weight:600}
+.data-table td:first-child,.data-table td:nth-child(2){background:var(--surface);z-index:1}
+.data-table thead th:first-child,.data-table thead th:nth-child(2){z-index:4;background:var(--surface-2)}
+.data-table td.invalid{color:var(--warn);text-decoration:underline dotted;text-underline-offset:3px}
+.empty{display:grid;place-items:center;min-height:200px;color:var(--muted);text-align:center;font-size:13px;line-height:1.6}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+
+/* ---- diagnostics ------------------------------------------- */
+.diag-verdict{display:flex;align-items:flex-start;gap:13px;padding:14px 16px;margin-bottom:16px;border:1px solid var(--line);border-left:4px solid var(--muted);border-radius:var(--r-s);background:var(--surface-2)}
+.diag-verdict[data-level="ok"]{border-left-color:var(--good)}
+.diag-verdict[data-level="warn"]{border-left-color:var(--warn)}
+.diag-verdict[data-level="crit"]{border-left-color:var(--crit)}
+.diag-verdict .vd-dot{flex:none;width:10px;height:10px;margin-top:5px;border-radius:50%;background:var(--muted)}
+.diag-verdict[data-level="ok"] .vd-dot{background:var(--good)}
+.diag-verdict[data-level="warn"] .vd-dot{background:var(--warn)}
+.diag-verdict[data-level="crit"] .vd-dot{background:var(--crit)}
+.diag-verdict b{display:block;font:650 15px var(--sans)}
+.diag-verdict span{display:block;margin-top:4px;color:var(--ink-2);font:12.5px/1.55 var(--sans)}
+.diag-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.diag-grid>.diag-card:first-child{grid-column:1/-1}
+.diag-table td.grp{color:var(--muted);font:11px var(--mono)}
+.diag-fw{margin:-2px 0 10px;color:var(--muted);font:11.5px/1.5 var(--sans)}
+.diag-fw b{color:var(--accent-ink);font:650 11.5px var(--mono)}
+.diag-card{min-width:0;border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface-2);padding:14px}
+.diag-card>b{display:block;margin-bottom:9px;color:var(--ink-2);font:650 10px var(--sans);letter-spacing:.05em;text-transform:uppercase}
+.diag-table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:var(--tab)}
+.diag-table th{padding:0 0 6px;color:var(--muted);font:600 10px var(--sans);letter-spacing:.02em;text-transform:uppercase;text-align:right}
+.diag-table th:first-child,.diag-table td:first-child{text-align:left}
+.diag-table td{padding:6px 0;border-top:1px solid var(--line);text-align:right;white-space:nowrap}
+.diag-table td:last-child{padding-left:8px}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font:650 10px var(--sans);letter-spacing:.02em;white-space:nowrap}
+.pill[data-level="ok"]{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
+.pill[data-level="warn"]{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.pill[data-level="crit"]{background:color-mix(in srgb,var(--crit) 18%,transparent);color:var(--crit)}
+.diag-list{list-style:none;margin:0;padding:0;max-height:300px;overflow:auto;font-size:12px;line-height:1.5}
+.diag-list li{padding:7px 0;border-top:1px solid var(--line)}
+.diag-list li:first-child{border-top:0;padding-top:0}
+.diag-list time{display:block;margin-bottom:2px;color:var(--muted);font:11px var(--mono);font-variant-numeric:var(--tab)}
+.diag-list .ev-crit{color:var(--crit)}
+.diag-list .ev-warn{color:var(--warn)}
+/* Expected events (the firmware's own scheduled restart) stay recessive on purpose:
+   colouring them like a fault is how a log trains its reader to ignore it. */
+.diag-list .ev-ok{color:var(--ink-2)}
+.diag-empty{padding:4px 0;color:var(--muted);font-size:12px}
+.diag-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:15px;padding-top:14px;border-top:1px solid var(--line)}
+.diag-actions small{color:var(--muted);font-size:11.5px;line-height:1.5}
+.diag-report{width:100%;min-height:200px;margin-top:12px;padding:11px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface-2);color:var(--ink);font:11.5px/1.55 var(--mono);resize:vertical;white-space:pre}
+
+.footer{margin-top:40px;border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font:12px/1.6 var(--sans)}
+.footer span{font-variant-numeric:var(--tab)}
+
+/* ---- responsive -------------------------------------------- */
+@media(max-width:1080px){
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .hero{grid-template-columns:1fr}
+  .latest-box{border-left:0;border-top:1px solid rgba(255,255,255,.16);padding:20px 0 0}
+  .livebar{grid-template-columns:1fr auto}
+  .live-meta{grid-row:2;grid-column:1/-1;border-top:1px solid var(--line);padding-top:11px}
+  .inspection-stats{grid-template-columns:repeat(4,1fr)}
+  .diag-grid{grid-template-columns:1fr 1fr}
+  .diag-card:first-child{grid-column:1/-1}
+}
+@media(max-width:760px){
+  .shell{width:calc(100% - 24px);padding-top:12px}
+  .brand small{display:none}
+  .top{align-items:flex-start;flex-wrap:wrap}
+  .channel-picker{order:3;width:100%;margin-left:0}
+  .channel-picker label{flex:1}
+  .channel-picker input{width:100%}
+  .livebar{grid-template-columns:1fr}
+  .live-actions,.live-meta{grid-column:1}
+  .live-actions{justify-content:space-between}
+  .hero{padding:24px 20px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .section-head{display:block}
+  .section-head p{text-align:left;margin-top:8px}
+  .cards{grid-template-columns:1fr}
+  .panel{padding:15px}
+  .table-tools input{width:100%}
+  .pager{width:100%;justify-content:space-between}
+  .window-bar,.module-head{display:block}
+  .window-bar strong{display:block;margin-top:10px}
+  .focus-key,.overview-instruction{text-align:left;margin-top:4px}
+  .focus-module svg{min-height:300px}
+  .overview-module svg{min-height:108px}
+  .inspection-stats{grid-template-columns:repeat(2,1fr)}
+  .window-nav{grid-template-columns:auto 1fr auto}
+  .diag-grid{grid-template-columns:1fr}
+}
+@media(max-width:420px){
+  body{font-size:14px}
+  .hero h1{font-size:30px}
+  .window-presets{display:grid;grid-template-columns:repeat(5,1fr)}
+  .window-presets button{min-width:0;width:100%}
+  .focus-module svg{min-height:270px}
+}
+@media(prefers-reduced-motion:reduce){.livebar[data-state="fresh"] .dot{animation:none}}
+</style>
+</head>
+<body><main class="shell">
+
+<div class="top">
+  <div class="brand"><span class="mark">V</span><span id="brandName">Station<small>public ThingSpeak · 24-hour live view</small></span></div>
+  <div class="channel-picker" role="group" aria-label="ThingSpeak channel selection">
+    <label>Channel ID
+      <input id="channelInput" type="text" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="e.g. 3448221" aria-describedby="channelError" list="knownChannels">
+      <datalist id="knownChannels"></datalist>
+      <span class="channel-error" id="channelError" aria-live="polite"></span>
+    </label>
+    <button class="btn" id="channelApply" type="button">Load channel</button>
+  </div>
+  <button class="icon-btn" id="theme" aria-label="Toggle color theme" aria-pressed="false">◐</button>
+</div>
+
+<section class="livebar" id="liveBar" data-state="loading">
+  <div class="status"><span class="dot"></span><div><strong id="statusLabel" role="status" aria-live="polite" aria-atomic="true">Connecting to station</strong><small>Auto refresh every 20 seconds · <span id="countdown" aria-hidden="true">starting…</span></small></div></div>
+  <div class="live-meta"><span>Latest sample<b id="sampleAge">—</b></span><span>History window<b id="windowLabel">24 h</b></span><span>Latest entry<b id="currentEntry">—</b></span></div>
+  <div class="live-actions"><button class="btn" id="refresh">Refresh now</button><label class="switch"><input id="auto" type="checkbox" checked> Auto</label></div>
+</section>
+
+<header class="hero">
+  <div>
+    <div class="eyebrow">Environmental monitoring · ThingSpeak channel <span id="channelId"></span></div>
+    <h1>Environmental telemetry, live.</h1>
+    <p>Current conditions, data freshness and recent trends from eight environmental measurements.</p>
+  </div>
+  <aside class="latest-box">
+    <span class="k">Latest observation · ICT</span>
+    <b id="latestTime">Waiting for data</b>
+    <small>Age <strong id="latestAge">—</strong><br>Entry <strong id="latestEntry">—</strong><br>Channel <strong id="channelName"></strong></small>
+  </aside>
+</header>
+
+<div class="stats">
+  <div class="stat"><b id="headlineTemp">—</b><span id="headlineTempLabel">Temperature · °C</span></div>
+  <div class="stat"><b id="headlineHumidity">—</b><span id="headlineHumidityLabel">Humidity · %RH</span></div>
+  <div class="stat"><b id="headlinePM">—</b><span id="headlinePMLabel">PM2.5 · µg/m³</span></div>
+  <div class="stat"><b id="headlineWind">—</b><span id="headlineWindLabel">Wind speed · m/s</span></div>
+</div>
+
+<div class="health-strip" aria-label="Station data health"><span>Loaded <strong id="records">0</strong></span><span>Coverage <strong><span id="duration">0.0</span> h</strong></span><span>Median cadence <strong id="cadence">—</strong></span><span><strong id="gaps">—</strong> <span id="gapThresholdLabel">gaps</span></span><span>Missing values <strong id="missingCount">0</strong></span><span>Flagged values <strong id="invalidCount">0</strong></span></div>
+<div class="boundary">Public ThingSpeak observations, not calibrated ground truth. Field names come from the selected channel. Known environmental fields receive broad plausibility checks; unknown fields are displayed without invented units or thresholds. <b id="epochNote"></b></div>
+
+<section class="section">
+  <div class="section-head"><div><span class="index">01 / SIGNALS</span><h2>Eight measurements, one live window</h2></div><p>Select a measurement to inspect the loaded 24-hour signal.</p></div>
+  <div class="cards" id="cards"><div class="empty">Loading sensor history…</div></div>
+</section>
+
+<section class="section" aria-labelledby="inspectionTitle">
+  <div class="section-head"><div><span class="index">02 / INSPECT</span><h2 id="inspectionTitle">Inspect the loaded signal</h2></div><p>Choose a duration, then drag or use the keyboard controls to move through the 24-hour window.</p></div>
+  <div class="panel">
+    <div class="toolbar">
+      <div class="controls">
+        <select id="metric" aria-label="Metric"></select>
+        <select id="scale" aria-label="Vertical scale"><option value="robust">Robust p05–p95</option><option value="full">Full min–max</option></select>
+        <select id="zone" aria-label="Timezone"><option value="Asia/Ho_Chi_Minh">ICT · UTC+7</option><option value="UTC">UTC</option></select>
+      </div>
+      <span class="range-note" id="range"></span>
+    </div>
+    <div class="window-bar">
+      <div class="window-presets" role="group" aria-label="Focus window">
+        <button type="button" data-window-hours="all" aria-pressed="true">ALL</button>
+        <button type="button" data-window-hours="12" aria-pressed="false">12H</button>
+        <button type="button" data-window-hours="6" aria-pressed="false">6H</button>
+        <button type="button" data-window-hours="3" aria-pressed="false">3H</button>
+        <button type="button" data-window-hours="1" aria-pressed="false">1H</button>
+      </div>
+      <strong id="selectionLabel">All loaded records</strong>
+    </div>
+    <div class="window-nav" aria-label="Move focus window">
+      <button type="button" id="windowPrev" aria-label="Move focus window earlier">← Earlier</button>
+      <input id="windowPosition" type="range" min="0" max="100" step="0.1" value="100" aria-label="Focus window position from earliest to latest">
+      <button type="button" id="windowNext" aria-label="Move focus window later">Later →</button>
+    </div>
+    <article class="focus-module">
+      <div class="module-head"><div><b id="focusTitle">Focus view</b><span id="focusMeta"></span></div><span class="focus-key" id="focusKey"></span></div>
+      <p class="sr-only" id="chartHelp">Focus the chart and use the left or right arrow key to inspect exact observations. Press Escape to close the reading.</p>
+      <p class="sr-only" id="chartReading" aria-live="polite"></p>
+      <div class="chart-shell" id="focusShell"><svg id="focusChart" role="img" tabindex="0" aria-describedby="chartHelp" aria-label="Selected signal window"></svg><div class="tooltip" id="focusTip"></div></div>
+    </article>
+    <article class="overview-module">
+      <div class="module-head"><div><b>Loaded-window overview</b><span id="overviewMeta">Every loaded observation remains visible here.</span></div><span class="overview-instruction">Drag the selection or use the controls above</span></div>
+      <svg id="overviewChart" role="img" aria-label="Loaded 24-hour history; drag the highlighted window to move the focus selection"></svg>
+      <div class="overview-axis"><span id="overviewStart">—</span><span id="overviewEnd">—</span></div>
+    </article>
+    <div class="inspection-stats" id="detailStats"></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><div><span class="index">03 / RECORDS</span><h2>Current 24-hour records</h2></div><p>Latest first. This table shows the loaded 24-hour window; Download CSV crawls and exports the channel's full history.</p></div>
+  <div class="panel">
+    <div class="table-tools">
+      <div class="tools-left">
+        <input id="search" type="search" inputmode="numeric" placeholder="Jump to exact entry ID" aria-label="Jump to exact entry ID">
+        <details class="dl-menu" id="dlMenu">
+          <summary class="btn" id="dlSummary" aria-haspopup="menu">⭳ Download CSV</summary>
+          <div class="dl-pop" role="menu">
+            <button type="button" class="dl-opt" id="dlOptAll" data-scope="all" role="menuitem"><b id="dlOptAllTitle">Full history since reinstall</b><span id="dlOptAllNote">Crawled on demand; large channels can take time and memory</span></button>
+            <button type="button" class="dl-opt" id="dlOpt24" data-scope="24h" role="menuitem"><b>Last 24 hours</b><span>Only the currently loaded window — instant</span></button>
+          </div>
+        </details>
+      </div>
+      <div class="pager"><button id="prev" aria-label="Previous page">←</button><span id="pageLabel"></span><button id="next" aria-label="Next page">→</button></div>
+    </div>
+    <div class="table-wrap"><table class="data-table" id="dataTable"><caption class="sr-only">Loaded environmental observations, latest first</caption><thead><tr id="dataTableHead"></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="diagTitle">
+  <div class="section-head"><div><span class="index">04 / DIAGNOSTICS</span><h2 id="diagTitle">Is the station healthy?</h2></div><p>Separates a station fault from a link fault: what the board sent, what this page could fetch, and which sensor stopped answering.</p></div>
+  <div class="panel">
+    <div class="diag-verdict" id="diagVerdict" role="status" aria-live="polite"><span class="vd-dot"></span><div><b id="diagTitleText">Checking…</b><span id="diagDetail"></span></div></div>
+    <div class="diag-grid">
+      <article class="diag-card"><b>Per-sensor health · state is judged on the newest records, not the whole window</b>
+        <div class="diag-fw" id="diagStatus"></div>
+        <table class="diag-table"><thead><tr><th>Sensor</th><th>Modbus read</th><th>Missing (window)</th><th>Missing (recent)</th><th>Out of range</th><th>Last good</th><th>Latest</th><th></th></tr></thead><tbody id="diagSensors"></tbody></table>
+      </article>
+      <article class="diag-card"><b>Station events</b><ol class="diag-list" id="diagEvents"></ol></article>
+      <article class="diag-card"><b>Fetch log · this browser</b><ol class="diag-list" id="diagFetch"></ol></article>
+    </div>
+    <div class="diag-actions">
+      <button class="btn" id="diagCopy">⧉ Copy diagnostic report</button>
+      <button class="btn" id="diagShow" aria-expanded="false">Show as text</button>
+      <small>Paste the report into a chat when asking for help — it carries the config, the event log and the fetch log, with no API key in it.</small>
+    </div>
+    <textarea class="diag-report" id="diagReport" readonly spellcheck="false" hidden aria-label="Diagnostic report text"></textarea>
+  </div>
+</section>
+
+<footer class="footer">Public ThingSpeak channel <span id="footerChannel"></span> · live 24-hour window · full-channel CSV available on demand.</footer>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     CONFIG — SỬA Ở ĐÂY. Không cần đụng vào JavaScript bên dưới.
+
+     TRANG NÀY CHẠY VỚI BẤT KỲ KÊNH ThingSpeak CÔNG KHAI NÀO. Gõ Channel ID vào ô
+     trên cùng, hoặc mở bằng /?channel=<id>. Tên field lấy từ chính kênh đó; field
+     nào nhận ra được thì có đơn vị và dải hợp lý, field lạ hiện trần không bịa đơn vị.
+     Phần chẩn đoán Modbus chỉ bật khi kênh có đủ bốn lệnh đọc của firmware nhà mình.
+
+     dataEpochs   : Mốc bắt đầu lấy dữ liệu, THEO TỪNG KÊNH. Mọi quan sát TRƯỚC mốc
+                    bị bỏ qua ở khắp nơi: biểu đồ, bảng, và cả file CSV xuất ra.
+                    Một trang phục vụ nhiều trạm nên KHÔNG thể dùng chung một mốc.
+                    Viết theo giờ UTC, định dạng "YYYY-MM-DDTHH:MM:SSZ".
+
+                    >>> ICT = UTC + 7, nên LẤY GIỜ VIỆT NAM TRỪ ĐI 7 <<<
+                       22:30 ICT ngày 21/07  ->  "2026-07-21T15:30:00Z"
+                       09:00 ICT ngày 22/07  ->  "2026-07-22T02:00:00Z"
+                       00:30 ICT ngày 22/07  ->  "2026-07-21T17:30:00Z"
+
+                    Đặt "" (rỗng) để bỏ cắt, dùng lại toàn bộ lịch sử kênh.
+                    Nếu đặt mốc ở tương lai, trang sẽ chờ im lặng tới lúc đó.
+
+                    3428136 (Sài Gòn) đã có mốc: thang đo gió đổi /100 -> /10.
+                    3448221 (Bảo Lộc) CHƯA chốt mốc — entry 1..53 của kênh này được
+                    ghi bằng field map của firmware Sài Gòn nên đọc theo nhãn hiện
+                    tại là SAI (gió 100,8 m/s, áp suất 21 kPa). Xem README firmware.
+
+     dataStartIso : Mốc mặc định cho kênh không có tên trong dataEpochs.
+     knownChannels: Gợi ý gõ nhanh cho ô Channel ID. KHÔNG phải danh sách hạn chế.
+
+     historyHours   : Độ dài cửa sổ live, tính ngược từ hiện tại (giờ).
+     pollIntervalMs : Nhịp tự làm mới (ms). ThingSpeak Free tối thiểu 15000.
+     calmThresholdMs: Dưới ngưỡng này (m/s) coi là lặng gió, không hiện hướng.
+                      0.5 = start wind speed theo datasheet SEN0658.
+     ══════════════════════════════════════════════════════════════════════ -->
+<script id="appConfig" type="application/json">
+{
+  "dataStartIso": "",
+
+  "dataEpochs": {
+    "3428136": "2026-07-21T17:17:02Z",
+    "3448221": ""
+  },
+
+  "knownChannels": [
+    {"id": 3448221, "label": "Bao Loc"},
+    {"id": 3428136, "label": "Sai Gon"}
+  ],
+
+  "historyHours": 24,
+  "pollIntervalMs": 20000,
+  "calmThresholdMs": 0.5,
+
+  "channel": {
+    "id": 3448221,
+    "name": "MakerLab Bao Loc Station",
+    "created_at": ""
+  },
+
+  "fields": {
+    "field1": {"name": "Temperature",    "unit": "°C",    "decimals": 1},
+    "field2": {"name": "Humidity",       "unit": "%RH",   "decimals": 1},
+    "field3": {"name": "Light",          "unit": "lux",   "decimals": 0},
+    "field4": {"name": "Wind speed",     "unit": "m/s",   "decimals": 1},
+    "field5": {"name": "Wind direction", "unit": "°",     "decimals": 0},
+    "field6": {"name": "PM2.5",          "unit": "µg/m³", "decimals": 0},
+    "field7": {"name": "PM10",           "unit": "µg/m³", "decimals": 0},
+    "field8": {"name": "Pressure",       "unit": "kPa",   "decimals": 1}
+  }
+}
+</script>
+
+<script>
+/* ============================================================
+   CONFIG + FORMAT HELPERS
+   ============================================================ */
+const C=JSON.parse(document.getElementById('appConfig').textContent),
+      POLL_INTERVAL_MS=C.pollIntervalMs,
+      /* Station was physically reinstalled; observations before this instant belong to the
+         previous deployment and are never fetched, charted, tabulated or exported.
+         Set to "" to disable the cut-off and use the channel's whole history again. */
+      DIRS=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+
+/* The URL is shareable: /?channel=3448221. localStorage is only a convenience for
+   returning visitors; a URL parameter always wins. Public channels need no read key. */
+const requestedChannel=new URLSearchParams(location.search).get('channel');
+let storedChannel='';try{storedChannel=localStorage.getItem('thingspeak-channel-id')||''}catch(_){}
+const initialChannel=requestedChannel||storedChannel||String(C.channel.id);
+if(/^\d{1,12}$/.test(initialChannel))C.channel.id=Number(initialChannel);
+
+/* The epoch is PER CHANNEL. One page serving several stations cannot share one cut-off:
+   Sài Gòn's boundary is a wind-scaling change, Bảo Lộc's would be a different event on a
+   different day, and a channel that is not ours has no boundary at all. dataStartIso is
+   only the fallback for channels the map does not mention. */
+const EPOCH_ISO=(C.dataEpochs&&C.dataEpochs[C.channel.id])||C.dataStartIso||'';
+
+let F=C.fields,
+    API=`https://api.thingspeak.com/channels/${C.channel.id}/feeds.json`,
+    DATA_START=Date.parse(EPOCH_ISO)||0,
+    PLAUSIBLE={},
+    /* Cache keys for the once-a-second diagnostics path. Declared up here, not next
+       to their use, because commitFieldModel() below invalidates them and runs during
+       bootstrap — a `let` further down the file would still be in its dead zone. */
+    rowsVersion=0,healthBase=null,healthBaseVersion=-1,cadenceValue=null,cadenceVersion=-1;
+
+const FIELD_RULES=[
+  [/wind.*(direction|bearing)|direction.*wind/i,{role:'windDirection',unit:'°',decimals:0,range:[0,360]}],
+  [/wind.*speed|speed.*wind/i,{role:'windSpeed',unit:'m/s',decimals:1,range:[0,45]}],
+  [/temp/i,{role:'temperature',unit:'°C',decimals:1,range:[-45,85]}],
+  [/humid/i,{role:'humidity',unit:'%RH',decimals:1,range:[0,100]}],
+  [/pm\s*2[._ ]?5/i,{role:'pm25',unit:'µg/m³',decimals:0,range:[0,1100]}],
+  [/pm\s*10/i,{role:'pm10',unit:'µg/m³',decimals:0,range:[0,1100]}],
+  [/press/i,{role:'pressure',unit:'kPa',decimals:1,range:[30,120]}],
+  [/light|lux/i,{role:'light',unit:'lux',decimals:0,range:[0,200000]}],
+  [/noise|sound/i,{role:'noise',unit:'dB',decimals:1,range:[25,125]}]
+];
+function fieldConfig(name,key){
+  const clean=String(name||key).trim()||key,rule=FIELD_RULES.find(([rx])=>rx.test(clean));
+  return{name:clean,unit:rule?rule[1].unit:'',decimals:rule?rule[1].decimals:2,role:rule?rule[1].role:null,range:rule?rule[1].range:null};
+}
+/* Split in two on purpose: build the candidate model without touching anything,
+   so a channel can be REJECTED before any of it is committed. See applyChannelMetadata. */
+function buildFieldModel(channel={}){
+  const next={};for(let i=1;i<=8;i++){const key=`field${i}`,name=channel[key]||F[key]?.name||key;next[key]=fieldConfig(name,key)}
+  return next;
+}
+function commitFieldModel(next){
+  F=next;C.fields=next;PLAUSIBLE=Object.fromEntries(Object.entries(F).filter(([,cfg])=>cfg.range).map(([key,cfg])=>[key,cfg.range]));
+  rebuildStationModel();
+  healthBaseVersion=-1;   // names, ranges and grouping all feed the cached half
+}
+const roleKey=role=>Object.keys(F).find(key=>F[key].role===role)||null;
+
+/* ---- station model: what this channel's fields MEAN, derived from ROLES ----------
+   Both stations run the same four Modbus reads but publish them into different
+   ThingSpeak fields: Bảo Lộc puts temperature in field1, Sài Gòn puts it in field3.
+   So everything here is keyed on role and resolved to field keys per channel.
+   Keying it on field NUMBER, as this file used to, silently mislabels the other
+   station — VOLATILE={field1,field2,field4,field6,field7} reads as "temperature,
+   humidity, wind speed, PM2.5, PM10" on one channel and "wind speed, wind direction,
+   pressure, humidity, noise" on the other, and nothing would have complained.
+   Keep the ids, registers and read order in sync with read_* in the firmware. */
+const MODBUS_ROLE_GROUPS=[
+  {id:'THN', label:'temp / humidity',         reg:'0x01F8', roles:['temperature','humidity','noise']},
+  {id:'LUX', label:'light',                   reg:'0x01FE', roles:['light']},
+  {id:'PM',  label:'PM2.5 / PM10 / pressure', reg:'0x01FB', roles:['pm25','pm10','pressure']},
+  {id:'WIND',label:'wind',                    reg:'0x01F4', roles:['windSpeed','windDirection']}
+];
+/* Signals that must physically move; a frozen reading on one of these is suspicious.
+   Light and pressure legitimately sit flat for long stretches (unlit scene at night,
+   stable weather), and wind direction freezes whenever it is calm — so none of those. */
+const VOLATILE_ROLES=['temperature','humidity','windSpeed','pm25','pm10','noise'];
+let MODBUS_GROUPS=[],VOLATILE={},STATION_MODE=false;
+function rebuildStationModel(){
+  MODBUS_GROUPS=MODBUS_ROLE_GROUPS
+    .map(g=>({id:g.id,label:g.label,reg:g.reg,fields:g.roles.map(roleKey).filter(Boolean)}))
+    .filter(g=>g.fields.length);
+  /* "Is this one of our stations?" = does the channel carry all four reads. With
+     anything less, the Modbus view would be describing a firmware this channel never
+     ran, so it switches off instead of guessing. A public channel that is not ours
+     still gets the charts, the table and the per-field health — just not a firmware
+     diagnosis it has no basis for. */
+  STATION_MODE=MODBUS_GROUPS.length===MODBUS_ROLE_GROUPS.length;
+  VOLATILE={};VOLATILE_ROLES.forEach(role=>{const key=roleKey(role);if(key)VOLATILE[key]=1});
+}
+function groupOf(key){return MODBUS_GROUPS.find(g=>g.fields.includes(key))}
+commitFieldModel(buildFieldModel());
+
+function renderChannelIdentity(){
+  document.title=`${C.channel.name||`ThingSpeak ${C.channel.id}`} — Live Telemetry`;
+  $('#brandName').childNodes[0].nodeValue=(C.channel.name||`Channel ${C.channel.id}`)+' ';
+  $('#channelId').textContent=C.channel.id;$('#channelName').textContent=C.channel.name||'Public channel';$('#footerChannel').textContent=C.channel.id;
+  $('#channelInput').value=String(C.channel.id);
+}
+function populateMetric(preferred){
+  const sel=$('#metric'),fallback=roleKey('temperature')||Object.keys(F)[0],selected=preferred&&F[preferred]?preferred:fallback;
+  sel.innerHTML='';Object.entries(F).forEach(([key,cfg])=>{const o=document.createElement('option');o.value=key;o.textContent=cfg.name;sel.append(o)});sel.value=selected;
+}
+function applyChannelMetadata(channel){
+  if(!channel||typeof channel!=='object')return;
+  /* ANY public channel is accepted. Field names come from the channel itself; the ones
+     FIELD_RULES recognises get a unit and a plausibility range, and the rest are shown
+     with neither rather than handed invented ones. This page used to hard-reject any
+     layout that was not Bảo Lộc's — which meant a dashboard built to take a channel ID
+     refused the other station we own, because Sài Gòn puts the same readings in
+     different fields. What varies per channel now lives in rebuildStationModel(). */
+  C.channel.name=String(channel.name||C.channel.name||`Channel ${C.channel.id}`);
+  C.channel.created_at=channel.created_at||C.channel.created_at||'';
+  const selected=$('#metric').value;
+  commitFieldModel(buildFieldModel(channel));renderChannelIdentity();populateMetric(selected);renderTableHead();
+}
+function loadChannelFromInput(){
+  const value=$('#channelInput').value.trim(),error=$('#channelError');
+  if(!/^\d{1,12}$/.test(value)||Number(value)<1){error.textContent='Enter a numeric public Channel ID.';$('#channelInput').focus();return}
+  error.textContent='';try{localStorage.setItem('thingspeak-channel-id',value)}catch(_){}
+  const url=new URL(location.href);url.searchParams.set('channel',value);location.assign(url.href);
+}
+
+let rows=[],lastKnownOnly=false,pollTimer=null,countdownTimer=null,nextPoll=0,busy=false,disposed=false,connectionState='loading',
+    page=0,focusHours='all',focusPosition=100,focusGeom=null,focusCursor=-1,tipPinned=false,
+    overviewGeom=null,overviewDragging=false,dragRaf=0,resizeRaf=0;
+
+const $=s=>document.querySelector(s),
+      fmt=(v,d=1)=>v==null?'—':Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}),
+      dateFormatters=new Map(),
+      dateFormatter=(z,short=false)=>{const key=z+(short?'|short':'|full');if(!dateFormatters.has(key))dateFormatters.set(key,new Intl.DateTimeFormat('en-GB',{timeZone:z,day:'2-digit',month:'short',...(short?{}:{year:'numeric'}),hour:'2-digit',minute:'2-digit',...(short?{}:{second:'2-digit'}),hourCycle:'h23'}));return dateFormatters.get(key)},
+      time=(ms,z)=>dateFormatter(z).format(new Date(ms)).replace(',',''),
+      shortTime=(ms,z)=>dateFormatter(z,true).format(new Date(ms)).replace(',','');
+
+/* ---- config bootstrap ---- */
+renderChannelIdentity();
+$('#windowLabel').textContent=C.historyHours+' h';
+/* The epoch is the only thing that keeps records from an earlier deployment out of the
+   charts, the table AND the export. With it unset, "full history" means literally every
+   row the channel holds — including any written by a firmware build with a different
+   field map, which this page would then label with the CURRENT column names. Numbers
+   that are wrong but perfectly readable are the expensive kind, so say so on both the
+   boundary note and the export menu rather than letting the label imply a cut-off. */
+if(DATA_START){
+  $('#epochNote').textContent=`Data epoch ${time(DATA_START,'Asia/Ho_Chi_Minh')} ICT — station reinstall and firmware update. Earlier observations came from a different firmware build (different wind scaling) and are excluded everywhere, including CSV export.`;
+}else{
+  $('#epochNote').textContent='No data epoch is set, so every record the channel has ever held is shown and exported. If the station was ever bench-tested or ran an earlier firmware build, those rows appear here under the current field labels.';
+  $('#dlOptAllTitle').textContent='Entire channel history';
+  $('#dlOptAllNote').textContent='No epoch is set: this exports every record ever written to the channel, including any from an earlier firmware build, under the current column names. Crawled on demand.';
+}
+$('#theme').setAttribute('aria-pressed',String(document.documentElement.classList.contains('dark')));
+$('#theme').onclick=()=>{document.documentElement.classList.toggle('dark');const dark=document.documentElement.classList.contains('dark');$('#theme').setAttribute('aria-pressed',String(dark));try{localStorage.setItem('vfcd-theme',dark?'dark':'light')}catch(_){}};
+
+populateMetric();
+
+/* Our own stations as type-ahead suggestions. Any numeric channel ID still works —
+   this is a shortcut, not a whitelist, so nothing here narrows what the page accepts. */
+(C.knownChannels||[]).forEach(entry=>{
+  const option=document.createElement('option');
+  option.value=String(entry.id);option.label=entry.label||'';
+  $('#knownChannels').append(option);
+});
+
+/* ============================================================
+   DATA MODEL
+   ============================================================ */
+function number(value){if(value==null||value==='')return null;const parsed=Number(value);return Number.isFinite(parsed)?parsed:null}
+function normalize(feed){const t=Date.parse(feed.created_at),id=Number(feed.entry_id);if(!Number.isFinite(t)||!Number.isInteger(id)||t<DATA_START)return null;const status=typeof feed.status==='string'&&feed.status.trim()?feed.status.trim():null;return{t,id,status,...Object.fromEntries(Array.from({length:8},(_,i)=>[`field${i+1}`,number(feed[`field${i+1}`])]))}}
+function usable(key,value){const range=PLAUSIBLE[key];return Number.isFinite(value)&&(!range||(value>=range[0]&&value<=range[1]))}
+function label(deg){return DIRS[Math.round((((deg%360)+360)%360)/22.5)%16]}
+function wind(row){
+  const speedKey=roleKey('windSpeed'),directionKey=roleKey('windDirection');
+  if(!speedKey||!Number.isFinite(row?.[speedKey]))return{kind:'speed-na',text:'SPEED UNAVAILABLE',degrees:null};
+  if(!usable(speedKey,row[speedKey]))return{kind:'speed-na',text:'INVALID SPEED',degrees:null};
+  if(row[speedKey]<=C.calmThresholdMs)return{kind:'calm',text:'CALM',degrees:null};
+  if(!directionKey||!Number.isFinite(row[directionKey]))return{kind:'direction-na',text:'DIRECTION UNAVAILABLE',degrees:null};
+  if(!usable(directionKey,row[directionKey]))return{kind:'direction-na',text:'INVALID DIRECTION',degrees:null};
+  const degrees=((row[directionKey]%360)+360)%360;
+  return{kind:'bearing',text:`${label(degrees)} · ${fmt(degrees,0)}°`,degrees};
+}
+function quantSorted(a,q){if(!a.length)return null;const p=(a.length-1)*q,l=Math.floor(p),u=Math.ceil(p);return a[l]+(a[u]-a[l])*(p-l)}
+function quant(values,q){return quantSorted(values.filter(Number.isFinite).sort((x,y)=>x-y),q)}
+function summary(key,source=rows){const values=source.map(row=>row[key]).filter(v=>usable(key,v)).sort((a,b)=>a-b),n=values.length;return{n,min:n?values[0]:null,p05:quantSorted(values,.05),mean:n?values.reduce((a,b)=>a+b,0)/n:null,median:quantSorted(values,.5),p95:quantSorted(values,.95),max:n?values.at(-1):null}}
+function cadenceMs(source=rows){const intervals=source.slice(1).map((row,i)=>row.t-source[i].t).filter(x=>x>=0);return intervals.length?quant(intervals,.5):null}
+function gapLimitMs(source=rows){const cadence=cadenceMs(source);return Math.max(60000,(cadence||20000)*3)}
+function pathFor(key,w,h,m,scale='robust',source=rows,domain=null){
+  const values=source.map(row=>row[key]).filter(v=>usable(key,v)).sort((a,b)=>a-b);
+  if(!values.length||!source.length)return null;
+  let lo=scale==='full'?values[0]:quantSorted(values,.05),hi=scale==='full'?values.at(-1):quantSorted(values,.95),
+      clipped=scale==='robust'?values.filter(v=>v<lo||v>hi).length:0;
+  if(lo===hi){lo-=1;hi+=1}
+  const start=domain?.start??source[0].t,end=domain?.end??source.at(-1).t,limit=gapLimitMs(source),segments=[];
+  let segment=[],previousTime=null;
+  const flush=()=>{if(segment.length)segments.push(segment);segment=[]};
+  source.forEach(row=>{
+    if(!usable(key,row[key])){flush();previousTime=null;return}
+    if(previousTime!=null&&row.t-previousTime>limit)flush();
+    segment.push({x:m.l+(row.t-start)/(end-start||1)*(w-m.l-m.r),y:m.t+(hi-Math.max(lo,Math.min(hi,row[key])))/(hi-lo)*(h-m.t-m.b),t:row.t,v:row[key]});
+    previousTime=row.t;
+  });
+  flush();
+  const xy=segments.flat(),d=segments.map(points=>points.map((p,i)=>(i?'L':'M')+p.x.toFixed(2)+' '+p.y.toFixed(2)).join(' ')).join(' ');
+  return{xy,segments,lo,hi,start,end,clipped,d};
+}
+function areaD(segments,baseY){return segments.map(xy=>{if(!xy.length)return'';const top=xy.map((p,i)=>(i?'L':'M')+p.x.toFixed(2)+' '+p.y.toFixed(2)).join(' ');return`${top} L ${xy.at(-1).x.toFixed(2)} ${baseY.toFixed(2)} L ${xy[0].x.toFixed(2)} ${baseY.toFixed(2)} Z`}).join(' ')}
+
+/* ============================================================
+   SECTION 01 — SIGNAL CARDS
+   ============================================================ */
+function spark(key){
+  const g=pathFor(key,390,64,{l:3,r:5,t:8,b:8});
+  if(!g)return'<div class="spark-empty">no trend in window</div>';
+  const last=g.xy.at(-1);
+  return`<svg class="spark" viewBox="0 0 390 64" preserveAspectRatio="none"><path class="spark-area" d="${areaD(g.segments,56)}"/><path class="trace" d="${g.d}"/></svg>`;
+}
+/* Compass dial: 16-point rose with a needle rotated to the bearing (0° = N, clockwise).
+   Non-bearing states (calm / unavailable) drop the needle and label the hub instead. */
+function compassSVG(state){
+  /* Cardinals sit outside the tick ring so neither the ticks nor the needle
+     can ever collide with the letters, whatever bearing is showing. */
+  const c=60,rFace=55,rLabel=46,rTick=36,bearing=state.kind==='bearing';
+  let marks='';
+  for(let i=0;i<16;i++){
+    const deg=i*22.5,major=deg%90===0,mid=deg%45===0,len=major?8:mid?5:3,
+      rad=(deg-90)*Math.PI/180,cos=Math.cos(rad),sin=Math.sin(rad);
+    marks+=`<line class="cmp-tick${major?' is-major':''}" x1="${(c+cos*rTick).toFixed(1)}" y1="${(c+sin*rTick).toFixed(1)}" x2="${(c+cos*(rTick-len)).toFixed(1)}" y2="${(c+sin*(rTick-len)).toFixed(1)}"/>`;
+  }
+  const cardinals=[['N',0],['E',90],['S',180],['W',270]].map(([name,deg])=>{
+    const rad=(deg-90)*Math.PI/180;
+    return`<text class="cmp-card${deg?'':' is-n'}" x="${(c+Math.cos(rad)*rLabel).toFixed(1)}" y="${(c+Math.sin(rad)*rLabel+3.5).toFixed(1)}" text-anchor="middle">${name}</text>`;
+  }).join('');
+  const centre=bearing
+    ?`<g transform="rotate(${state.degrees.toFixed(1)} ${c} ${c})"><path class="cmp-tail" d="M ${c-5} ${c+8} L ${c} ${c+19} L ${c+5} ${c+8} Z"/><path class="cmp-needle" d="M ${c} ${c-33} L ${c-7} ${c+9} L ${c} ${c+4} L ${c+7} ${c+9} Z"/></g><circle class="cmp-hub" cx="${c}" cy="${c}" r="4"/>`
+    :`<circle class="cmp-hub is-idle" cx="${c}" cy="${c}" r="4"/><text class="cmp-idle" x="${c}" y="${c+20}" text-anchor="middle">${state.kind==='calm'?'CALM':'NO FIX'}</text>`;
+  return`<svg class="compass" viewBox="0 0 120 120" role="img" aria-label="${bearing?`Wind direction ${label(state.degrees)}, ${fmt(state.degrees,0)} degrees clockwise from north`:state.text}"><circle class="cmp-face" cx="${c}" cy="${c}" r="${rFace}"/><circle class="cmp-inner" cx="${c}" cy="${c}" r="19"/>${marks}${cardinals}${centre}</svg>`;
+}
+function renderCards(){
+  const selected=$('#metric').value||roleKey('temperature')||Object.keys(F)[0],container=$('#cards'),last=rows.at(-1),directionKey=roleKey('windDirection'),speedKey=roleKey('windSpeed');
+  container.innerHTML='';
+  Object.entries(F).forEach(([key,cfg])=>{
+    const card=document.createElement('button');
+    card.className='card';card.dataset.metric=key;
+    card.setAttribute('aria-pressed',key===selected?'true':'false');
+    if(key===directionKey&&speedKey){
+      const state=wind(last),bearing=state.kind==='bearing';
+      card.innerHTML=`<span class="card-head"><strong>${escHtml(cfg.name)}</strong><small>latest bearing<br>calm ≤ ${C.calmThresholdMs} m/s</small></span>`+
+        `<span class="wind-compass">${compassSVG(state)}`+
+          `<span class="wind-readout">`+
+            `<span class="wind-state${bearing?'':' is-idle'}">${bearing?label(state.degrees):state.text}</span>`+
+            `<span class="wind-deg">${bearing?fmt(state.degrees,0)+'° from N':'bearing not active'}</span>`+
+            `<span class="wind-note">speed ${usable(speedKey,last[speedKey])?fmt(last[speedKey],F[speedKey].decimals):'—'} ${F[speedKey].unit}</span>`+
+          `</span>`+
+        `</span>`;
+    }else{
+      const s=summary(key);
+      card.innerHTML=`<span class="card-head"><strong>${escHtml(cfg.name)}</strong><small>p05–p95<br>${fmt(s.p05,cfg.decimals)}–${fmt(s.p95,cfg.decimals)}</small></span>`+
+        `<span class="value">${usable(key,last[key])?fmt(last[key],cfg.decimals):'—'} <small>${cfg.unit}</small></span>`+
+        spark(key)+
+        `<span class="time-edge"><span>${shortTime(rows[0].t,'Asia/Ho_Chi_Minh')}</span><span>${shortTime(last.t,'Asia/Ho_Chi_Minh')}</span></span>`;
+    }
+    card.onclick=()=>{$('#metric').value=key;renderDetail();$('#inspectionTitle').scrollIntoView({block:'start',behavior:'smooth'})};
+    container.append(card);
+  });
+}
+
+/* ============================================================
+   SECTION 02 — INSPECTION
+   ============================================================ */
+function focusSelection(){
+  const start=rows[0].t,end=rows.at(-1).t,span=Math.max(1,end-start),
+    hours=focusHours==='all'?null:Number(focusHours),
+    windowMs=hours==null?span:Math.min(span,hours*3600000),
+    movable=Math.max(0,span-windowMs),
+    selectedStart=start+movable*focusPosition/100,
+    selectedEnd=selectedStart+windowMs,
+    source=rows.filter(row=>row.t>=selectedStart&&row.t<=selectedEnd);
+  return{start,end,span,windowMs,movable,selectedStart,selectedEnd,source};
+}
+function renderInspectionStats(items){$('#detailStats').innerHTML=items.map(([name,value])=>`<div class="inspection-stat"><span>${name}</span><b title="${value}">${value}</b></div>`).join('')}
+function selectionOverlay(bounds,w,left,right,height){
+  const plot=w-left-right,x1=left+(bounds.selectedStart-bounds.start)/bounds.span*plot,x2=left+(bounds.selectedEnd-bounds.start)/bounds.span*plot;
+  return`<rect class="selection-dim" x="${left}" y="0" width="${Math.max(0,x1-left)}" height="${height}"/><rect class="selection-dim" x="${x2}" y="0" width="${Math.max(0,w-right-x2)}" height="${height}"/><rect class="selection-mask" data-selection-window x="${x1}" y="1" width="${Math.max(2,x2-x1)}" height="${height-2}"/>`;
+}
+function timeGrid(start,end,w,h,m,count){
+  let html='';
+  for(let i=0;i<count;i++){const ratio=i/(count-1),x=m.l+ratio*(w-m.l-m.r),t=start+ratio*(end-start);
+    html+=`<line class="grid" x1="${x}" y1="${m.t}" x2="${x}" y2="${h-m.b}"/><text class="tick" x="${x}" y="${h-14}" text-anchor="${i===0?'start':i===count-1?'end':'middle'}">${shortTime(t,$('#zone').value)}</text>`;}
+  return html;
+}
+function renderScalarInspection(key,bounds,w){
+  const cfg=F[key],source=bounds.source,h=w<600?310:390,m={l:60,r:20,t:20,b:46},
+    g=pathFor(key,w,h,m,$('#scale').value,source,{start:bounds.selectedStart,end:bounds.selectedEnd}),svg=$('#focusChart');
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+  svg.setAttribute('aria-label',`${cfg.name}, ${fmt(bounds.windowMs/3600000,1)} hour selected window`);
+  focusGeom=null;
+  $('#focusTitle').textContent=`${cfg.name} · focus`;
+  $('#range').textContent=`${fmt(bounds.windowMs/3600000,1)} h selected`;
+  if(!g){
+    svg.innerHTML=timeGrid(bounds.selectedStart,bounds.selectedEnd,w,h,m,w<600?3:6)+`<text class="tick" x="${w/2}" y="${h/2}" text-anchor="middle">No valid observations in this interval</text>`;
+    $('#focusMeta').textContent=`${source.length.toLocaleString()} records in the selected interval`;
+    $('#focusKey').textContent='No valid values';$('#focusKey').dataset.clipped='false';
+    renderInspectionStats([['Records',source.length.toLocaleString()],['Valid','0'],['Minimum','—'],['P05','—'],['Mean','—'],['P95','—'],['Maximum','—']]);return;
+  }
+  let html='';
+  for(let i=0;i<5;i++){const ratio=i/4,y=m.t+ratio*(h-m.t-m.b),value=g.hi-ratio*(g.hi-g.lo);
+    html+=`<line class="grid" x1="${m.l}" y1="${y}" x2="${w-m.r}" y2="${y}"/><text class="tick" x="${m.l-9}" y="${y+4}" text-anchor="end">${fmt(value,cfg.decimals)}</text>`;}
+  html+=timeGrid(bounds.selectedStart,bounds.selectedEnd,w,h,m,w<600?3:6);
+  html+=`<path class="focus-area" d="${areaD(g.segments,h-m.b)}"/><path class="focus-line" data-focus-trace d="${g.d}"/>`;
+  const last=g.xy.at(-1);
+  html+=`<line class="crosshair" id="focusCross" x1="0" y1="${m.t}" x2="0" y2="${h-m.b}" hidden/>`;
+  html+=`<circle class="hover-dot" id="focusHover" r="4.5" hidden/>`;
+  html+=`<circle class="end-dot" cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="4.5"/>`;
+  svg.innerHTML=html;
+  focusGeom={mode:'scalar',W:w,H:h,m,points:g.xy.map(p=>({x:p.x,y:p.y,primary:`${fmt(p.v,cfg.decimals)} ${cfg.unit}`,secondary:shortTime(p.t,$('#zone').value)}))};
+  const s=summary(key,source);
+  $('#focusMeta').textContent=`${source.length.toLocaleString()} of ${rows.length.toLocaleString()} loaded records`;
+  const clippedText=g.clipped?` · ${g.clipped.toLocaleString()} clipped`:'';
+  $('#focusKey').textContent=`${$('#scale').value} ${fmt(g.lo,cfg.decimals)}–${fmt(g.hi,cfg.decimals)} ${cfg.unit}${clippedText}`;
+  $('#focusKey').dataset.clipped=String(g.clipped>0);
+  renderInspectionStats([['Records',source.length.toLocaleString()],['Valid',s.n.toLocaleString()],['Minimum',fmt(s.min,cfg.decimals)],['P05',fmt(s.p05,cfg.decimals)],['Mean',fmt(s.mean,cfg.decimals)],['P95',fmt(s.p95,cfg.decimals)],['Maximum',fmt(s.max,cfg.decimals)]]);
+}
+function windStats(source){
+  const states=source.map(wind),bearing=states.filter(s=>s.kind==='bearing'),
+    calm=states.filter(s=>s.kind==='calm').length,
+    missing=states.filter(s=>!['bearing','calm'].includes(s.kind)).length;
+  let sin=0,cos=0;bearing.forEach(s=>{const a=s.degrees*Math.PI/180;sin+=Math.sin(a);cos+=Math.cos(a)});
+  const mean=bearing.length?(Math.atan2(sin,cos)*180/Math.PI+360)%360:null,strength=bearing.length?Math.hypot(sin,cos)/bearing.length:null;
+  return{bearing,calm,missing,mean,strength};
+}
+function renderWindInspection(bounds,w){
+  const source=bounds.source,h=w<600?340:410,m={l:60,r:20,t:20,b:42},
+    bearingBottom=h-m.b-62,calmY=h-m.b-34,naY=h-m.b-9,
+    span=Math.max(1,bounds.selectedEnd-bounds.selectedStart),
+    x=row=>m.l+(row.t-bounds.selectedStart)/span*(w-m.l-m.r),svg=$('#focusChart');
+  let html='';const pts=[];
+  [['N',0],['E',.25],['S',.5],['W',.75],['N',1]].forEach(([name,ratio])=>{const y=m.t+ratio*(bearingBottom-m.t);
+    html+=`<line class="grid" x1="${m.l}" y1="${y}" x2="${w-m.r}" y2="${y}"/><text class="tick" x="${m.l-10}" y="${y+4}" text-anchor="end">${name}</text>`;});
+  html+=`<line class="grid" x1="${m.l}" y1="${calmY}" x2="${w-m.r}" y2="${calmY}"/><text class="tick" x="${m.l-10}" y="${calmY+4}" text-anchor="end">CALM</text>`;
+  html+=`<line class="grid" x1="${m.l}" y1="${naY}" x2="${w-m.r}" y2="${naY}"/><text class="tick" x="${m.l-10}" y="${naY+4}" text-anchor="end">N/A</text>`;
+  source.forEach(row=>{
+    const state=wind(row),
+      y=state.kind==='bearing'?m.t+state.degrees/360*(bearingBottom-m.t):state.kind==='calm'?calmY:naY,
+      cls=state.kind==='bearing'?'wind-dot':state.kind==='calm'?'calm-dot':'na-dot',
+      sector=state.kind==='bearing'?label(state.degrees):state.kind,
+      cx=x(row);
+    html+=`<circle class="${cls}" data-wind-point data-kind="${state.kind}" data-sector="${sector}" cx="${cx.toFixed(2)}" cy="${y.toFixed(2)}" r="${w<600?2.6:3.2}"/>`;
+    pts.push({x:cx,y,primary:state.text,secondary:shortTime(row.t,$('#zone').value)});
+  });
+  if(!source.length)html+=`<text class="tick" x="${w/2}" y="${h/2}" text-anchor="middle">No observations in this interval</text>`;
+  html+=timeGrid(bounds.selectedStart,bounds.selectedEnd,w,h,{l:m.l,r:m.r,t:m.t,b:9},w<600?3:6);
+  html+=`<circle class="hover-dot" id="focusHover" r="5" hidden/>`;
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);svg.setAttribute('aria-label',`Wind direction, ${fmt(bounds.windowMs/3600000,1)} hour selected window`);svg.innerHTML=html;
+  focusGeom={mode:'wind',W:w,H:h,m,points:pts};
+  const s=windStats(source),latest=wind(source.at(-1));
+  $('#focusTitle').textContent='Wind direction · focus';
+  $('#focusMeta').textContent=`${source.length.toLocaleString()} observations · bearing, calm and unavailable stay visible`;
+  $('#focusKey').textContent=source.length?`Latest ${latest.text}`:'No observations';$('#focusKey').dataset.clipped='false';
+  $('#range').textContent=`${fmt(bounds.windowMs/3600000,1)} h selected`;
+  renderInspectionStats([['Records',source.length.toLocaleString()],['Directional',s.bearing.length.toLocaleString()],['Calm',s.calm.toLocaleString()],['Unavailable',s.missing.toLocaleString()],['Calm share',fmt(source.length?s.calm/source.length*100:0,1)+'%'],['Mean direction',s.mean==null?'—':`${label(s.mean)} ${fmt(s.mean,0)}°`],['Consistency',fmt(s.strength,2)]]);
+}
+function renderOverview(key,bounds,w){
+  const h=130,m={l:14,r:14,t:12,b:18},svg=$('#overviewChart');
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+  let html='';
+  if(key===roleKey('windDirection')){
+    const span=bounds.span;
+    rows.forEach(row=>{const state=wind(row),
+      cx=m.l+(row.t-bounds.start)/span*(w-m.l-m.r),
+      cy=state.kind==='bearing'?m.t+state.degrees/360*(h-m.t-m.b-22):state.kind==='calm'?h-m.b-12:h-m.b-3,
+      cls=state.kind==='bearing'?'wind-dot':state.kind==='calm'?'calm-dot':'na-dot';
+      html+=`<circle class="${cls}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="1.5"/>`;});
+  }else{
+    const g=pathFor(key,w,h,m,'full',rows);
+    if(g)html+=`<path class="overview-line" data-overview-trace d="${g.d}"/>`;
+  }
+  svg.innerHTML=html+selectionOverlay(bounds,w,m.l,m.r,h);
+  $('#overviewStart').textContent=shortTime(bounds.start,$('#zone').value);
+  $('#overviewEnd').textContent=shortTime(bounds.end,$('#zone').value);
+  $('#overviewMeta').textContent=`All ${rows.length.toLocaleString()} loaded observations`;
+  overviewGeom={w,left:m.l,right:m.r};
+  svg.style.cursor=bounds.movable?'grab':'default';
+}
+/* Drag the highlighted window directly on the overview to move the focus selection. */
+function overviewDrag(ev){
+  if(!overviewGeom||!rows.length)return;
+  const b=focusSelection();
+  if(!b.movable)return; // whole range already selected (ALL) — nothing to move
+  const svg=$('#overviewChart'),rect=svg.getBoundingClientRect();
+  if(!rect.width)return;
+  const vx=(ev.clientX-rect.left)/rect.width*overviewGeom.w,
+    plot=overviewGeom.w-overviewGeom.left-overviewGeom.right,
+    ratio=Math.max(0,Math.min(1,(vx-overviewGeom.left)/plot)),
+    centre=b.start+ratio*b.span;
+  let sel=Math.max(b.start,Math.min(b.start+b.movable,centre-b.windowMs/2));
+  focusPosition=(sel-b.start)/b.movable*100;
+  if(!dragRaf)dragRaf=requestAnimationFrame(()=>{dragRaf=0;renderDetail()});
+}
+function renderDetail(){
+  if(!rows.length)return;
+  tipPinned=false;focusCursor=-1;hideTip(true);
+  const key=$('#metric').value||roleKey('temperature')||Object.keys(F)[0],directionKey=roleKey('windDirection'),bounds=focusSelection(),shell=$('#focusShell'),w=Math.max(350,shell.clientWidth);
+  $('#scale').hidden=key===directionKey;
+  key===directionKey?renderWindInspection(bounds,w):renderScalarInspection(key,bounds,w);
+  renderOverview(key,bounds,w);
+  $('#selectionLabel').textContent=focusHours==='all'
+    ?`All loaded records · ${fmt(bounds.span/3600000,1)} h`
+    :`${fmt(bounds.windowMs/3600000,1)} h window · ${shortTime(bounds.selectedStart,$('#zone').value)} → ${shortTime(bounds.selectedEnd,$('#zone').value)}`;
+  $('#windowPosition').value=focusPosition;$('#windowPosition').disabled=!bounds.movable;
+  $('#windowPrev').disabled=!bounds.movable||focusPosition<=0;$('#windowNext').disabled=!bounds.movable||focusPosition>=100;
+  document.querySelectorAll('[data-window-hours]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.windowHours)===String(focusHours)?'true':'false'));
+  document.querySelectorAll('.card').forEach(c=>c.setAttribute('aria-pressed',c.dataset.metric===key?'true':'false'));
+}
+
+/* ---- focus-chart pointer + keyboard inspection ---- */
+function nearestPointIndex(points,x){
+  let lo=0,hi=points.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(points[mid].x<x)lo=mid+1;else hi=mid}
+  if(lo===0)return 0;if(lo===points.length)return points.length-1;
+  return Math.abs(points[lo].x-x)<Math.abs(points[lo-1].x-x)?lo:lo-1;
+}
+function showTip(index){
+  if(!focusGeom||!focusGeom.points.length)return;
+  const svg=$('#focusChart'),rect=svg.getBoundingClientRect();
+  if(!rect.width||!rect.height)return;
+  focusCursor=Math.max(0,Math.min(focusGeom.points.length-1,index));const best=focusGeom.points[focusCursor];
+  const cross=$('#focusCross'),hover=$('#focusHover'),tip=$('#focusTip'),shell=$('#focusShell');
+  if(cross){cross.setAttribute('x1',best.x);cross.setAttribute('x2',best.x);cross.hidden=false}
+  if(hover){hover.setAttribute('cx',best.x);hover.setAttribute('cy',best.y);hover.hidden=false}
+  const left=best.x/focusGeom.W*rect.width,topPx=best.y/focusGeom.H*rect.height;
+  tip.innerHTML=`<b>${best.primary}</b><br><span class="t-k">${best.secondary}</span>`;
+  tip.style.display='block';
+  /* Measure after the content is laid out, then place the box so it can never be
+     clipped by the shell: flip it under the point when the headroom above is short,
+     and clamp horizontally by its real half-width instead of a fixed guess. */
+  const gap=13,shellW=shell.clientWidth,shellH=shell.clientHeight,tipW=tip.offsetWidth,tipH=tip.offsetHeight,half=tipW/2+4,
+    fitsAbove=topPx-gap-tipH>=0,fitsBelow=topPx+gap+tipH<=shellH;
+  tip.dataset.flip=fitsAbove||!fitsBelow?'above':'below';
+  tip.style.left=(shellW<tipW+8?shellW/2:Math.max(half,Math.min(shellW-half,left)))+'px';
+  tip.style.top=(tip.dataset.flip==='above'?Math.max(gap+tipH,topPx):Math.min(shellH-gap-tipH,topPx))+'px';
+}
+function moveTip(ev){if(tipPinned||!focusGeom?.points.length)return;const rect=$('#focusChart').getBoundingClientRect();if(!rect.width)return;const vx=(ev.clientX-rect.left)/rect.width*focusGeom.W;showTip(nearestPointIndex(focusGeom.points,vx))}
+function hideTip(force=false){if(tipPinned&&!force)return;const c=$('#focusCross'),hv=$('#focusHover');if(c)c.hidden=true;if(hv)hv.hidden=true;$('#focusTip').style.display='none';if(force)focusCursor=-1}
+$('#focusShell').addEventListener('pointermove',moveTip);
+$('#focusShell').addEventListener('pointerleave',()=>hideTip(false));
+$('#focusShell').addEventListener('pointerdown',ev=>{tipPinned=false;moveTip(ev);tipPinned=focusCursor>=0});
+$('#focusChart').addEventListener('keydown',ev=>{
+  if(!focusGeom?.points.length)return;
+  if(ev.key==='Escape'){tipPinned=false;hideTip(true);$('#chartReading').textContent='';return}
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(ev.key))return;
+  ev.preventDefault();tipPinned=true;
+  if(ev.key==='Home')focusCursor=0;else if(ev.key==='End')focusCursor=focusGeom.points.length-1;
+  else if(focusCursor<0)focusCursor=ev.key==='ArrowLeft'?focusGeom.points.length-1:0;
+  else focusCursor+=ev.key==='ArrowLeft'?-1:1;
+  showTip(focusCursor);const point=focusGeom.points[Math.max(0,Math.min(focusGeom.points.length-1,focusCursor))];$('#chartReading').textContent=`${point.primary}, ${point.secondary}`;
+});
+
+/* ============================================================
+   SECTION 03 — RECORDS TABLE
+   ============================================================ */
+const PAGE=50;
+function filtered(){const query=$('#search').value.trim(),view=[...rows].reverse();return query?view.filter(row=>String(row.id)===query):view}
+function renderTableHead(){$('#dataTableHead').innerHTML='<th>Entry</th><th>Time (ICT)</th><th>Time (UTC)</th>'+Object.values(F).map(cfg=>`<th>${escHtml(cfg.name)}${cfg.unit?' '+escHtml(cfg.unit):''}</th>`).join('')}
+function renderTable(){
+  const data=filtered(),pages=Math.max(1,Math.ceil(data.length/PAGE));
+  page=Math.min(page,pages-1);
+  const slice=data.slice(page*PAGE,(page+1)*PAGE);
+  $('#dataTable tbody').innerHTML=slice.length?slice.map(row=>`<tr><td>${row.id}</td><td>${time(row.t,'Asia/Ho_Chi_Minh')}</td><td>${time(row.t,'UTC')}</td>${Array.from({length:8},(_,i)=>{const key=`field${i+1}`,value=row[key],invalid=Number.isFinite(value)&&!usable(key,value);return`<td class="${invalid?'invalid':''}" ${invalid?'title="Outside broad plausibility range"':''}>${fmt(value,F[key].decimals)}</td>`}).join('')}</tr>`).join(''):'<tr><td colspan="11" style="text-align:center;color:var(--muted)">No matching entry ID.</td></tr>';
+  $('#pageLabel').textContent=`${page+1} / ${pages} · ${data.length.toLocaleString()} rows`;
+  $('#prev').disabled=page===0;$('#next').disabled=page>=pages-1;
+}
+
+/* CSV export — crawls the channel's FULL history on demand. The live dashboard
+   stays on the fast 24-hour window; only this button pulls everything, into its
+   own buffer (never into `rows`), builds the CSV, downloads, and discards it. */
+let csvBusy=false;
+function csvParts(source){
+  const esc=v=>{if(v==null)return'';const s=String(v);return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s},
+    header=['entry_id','timestamp_utc_iso','time_ict',...Object.values(F).map(cfg=>`${cfg.name} (${cfg.unit})`),'firmware_status'],
+    parts=['﻿'+header.map(esc).join(',')+'\r\n'];
+  let lines=[];source.forEach((row,index)=>{lines.push([row.id,new Date(row.t).toISOString(),time(row.t,'Asia/Ho_Chi_Minh'),...Array.from({length:8},(_,i)=>row[`field${i+1}`]),row.status].map(esc).join(','));if(lines.length===5000||index===source.length-1){parts.push(lines.join('\r\n')+'\r\n');lines=[]}});
+  return parts; // chunked to avoid building one additional full-size CSV string
+}
+function saveCSV(source){
+  const pad=n=>String(n).padStart(2,'0'),d=new Date(),
+    stamp=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`,
+    name=`${C.channel.name.replace(/[^\w.-]+/g,'_')}_${stamp}_${source.length}rows.csv`,
+    blob=new Blob(csvParts(source),{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+async function exportCSV(scope){
+  if(csvBusy)return;
+  const sum=$('#dlSummary'),idle=sum.dataset.idle||sum.textContent;sum.dataset.idle=idle;
+  $('#dlMenu').open=false;
+  const flash=(text,ms)=>{sum.textContent=text;setTimeout(()=>{if(!csvBusy)sum.textContent=idle},ms)};
+  if(scope==='24h'){                               // instant — the already-loaded window
+    if(!rows.length)return;
+    saveCSV(rows);
+    flash(`✓ Exported ${rows.length.toLocaleString()} rows (24 h)`,3000);
+    return;
+  }
+  csvBusy=true;sum.textContent='⏳ Crawling full history…';   // on-demand full crawl
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),120000);
+  try{
+    const end=Date.now()+1000,start=Math.max(DATA_START,(Date.parse(C.channel.created_at)||end-C.historyHours*3600000)-1000);
+    if(start>=end)throw new Error('Data epoch not reached');
+    const feeds=await fetchRange(start,end,controller.signal),byId=new Map();
+    feeds.map(normalize).filter(Boolean).forEach(r=>byId.set(r.id,r));
+    const data=[...byId.values()].sort((a,b)=>a.id-b.id);
+    if(!data.length)throw new Error('No data returned');
+    saveCSV(data);
+    csvBusy=false;flash(`✓ Exported ${data.length.toLocaleString()} rows (full)`,3200);
+  }catch(err){
+    csvBusy=false;flash(err.name==='AbortError'?'✕ Timed out — retry':'✕ Failed — retry',3400);
+  }finally{clearTimeout(timeout);csvBusy=false}
+}
+
+/* ============================================================
+   STATION HEALTH + DATA PIPELINE
+   ============================================================ */
+function formatAge(ms){
+  if(!Number.isFinite(ms))return'—';const s=Math.max(0,Math.floor(ms/1000));
+  if(s<5)return'just now';if(s<60)return`${s} s ago`;const minutes=Math.floor(s/60);
+  if(minutes<60)return`${minutes} min ${s%60} s ago`;const hours=Math.floor(minutes/60);
+  if(hours<24)return`${hours} h ${minutes%60} min ago`;return`${Math.floor(hours/24)} d ${hours%24} h ago`;
+}
+function freshness(){
+  if(!rows.length)return{kind:'empty',age:null,threshold:null};
+  const age=Math.max(0,Date.now()-rows.at(-1).t),threshold=Math.max(120000,(cadenceCached()||POLL_INTERVAL_MS)*3);
+  return{kind:age<=threshold?'fresh':'stale',age,threshold};
+}
+function refreshStatus(){
+  const f=freshness(),ageText=formatAge(f.age);$('#sampleAge').textContent=ageText;$('#latestAge').textContent=ageText;
+  let state=connectionState,text='Connecting to station';
+  if(connectionState==='ok'){state=f.kind==='fresh'?'fresh':'stale';text=f.kind==='fresh'?'Connected · data fresh':'Connected · data stale'}
+  else if(connectionState==='loading')text='Checking station';
+  else if(connectionState==='pending')text=`Waiting for data epoch · ${shortTime(DATA_START,'Asia/Ho_Chi_Minh')} ICT`;
+  else if(connectionState==='error')text='Connection unavailable · retrying';
+  else if(connectionState==='paused')text='Auto refresh paused';
+  $('#liveBar').dataset.state=state;if($('#statusLabel').textContent!==text)$('#statusLabel').textContent=text;
+  renderVerdict();   // keeps the age-dependent verdict current on every tick
+}
+function setConnection(state){connectionState=state;refreshStatus()}
+function updateOverview(){
+  /* Single choke point: every path that reassigns `rows` (merge, showLastKnown, the
+     empty-epoch branch) calls this immediately after. Bumping here is what lets the
+     per-second verdict tick reuse the row-derived half instead of rescanning. */
+  rowsVersion++;
+  if(!rows.length){
+    $('#records').textContent='0';$('#duration').textContent='0.0';$('#cadence').textContent='—';$('#gaps').textContent='—';$('#missingCount').textContent='0';$('#invalidCount').textContent='0';
+    $('#headlineTemp').textContent='—';$('#headlineHumidity').textContent='—';$('#headlinePM').textContent='—';$('#headlineWind').textContent='—';
+    $('#windowLabel').textContent='—';$('#dlOpt24').disabled=true;
+    $('#latestTime').textContent='No records loaded';$('#latestEntry').textContent='—';$('#currentEntry').textContent='—';
+    const blank=DATA_START>Date.now()
+      ?`Waiting for the data epoch — the first records appear after ${time(DATA_START,'Asia/Ho_Chi_Minh')} ICT.`
+      :'No records loaded yet.';
+    $('#cards').innerHTML=`<div class="empty"></div>`;$('#cards .empty').textContent=blank;
+    $('#dataTable tbody').innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--muted)"></td></tr>';$('#dataTable tbody td').textContent=blank;
+    $('#pageLabel').textContent='0 rows';$('#focusChart').innerHTML='';$('#overviewChart').innerHTML='';$('#detailStats').innerHTML='';
+    $('#selectionLabel').textContent='No records available';$('#windowPosition').disabled=true;$('#windowPrev').disabled=true;$('#windowNext').disabled=true;focusGeom=null;overviewGeom=null;renderDiagnostics();refreshStatus();return;
+  }
+  const first=rows[0],last=rows.at(-1),intervals=rows.slice(1).map((row,i)=>(row.t-rows[i].t)/1000).filter(x=>x>=0),median=intervals.length?quant(intervals,.5):null,gapThreshold=gapLimitMs(rows)/1000;
+  $('#records').textContent=rows.length.toLocaleString();
+  $('#duration').textContent=fmt((last.t-first.t)/3600000,1);
+  $('#windowLabel').textContent=lastKnownOnly?'last known':C.historyHours+' h';$('#dlOpt24').disabled=lastKnownOnly;
+  $('#cadence').textContent=median!=null?fmt(median,0)+' s':'—';
+  $('#gaps').textContent=intervals.filter(x=>x>gapThreshold).length.toLocaleString();$('#gapThresholdLabel').textContent=`gaps > ${fmt(gapThreshold,0)} s`;
+  $('#missingCount').textContent=rows.reduce((total,row)=>total+Object.keys(F).filter(key=>!Number.isFinite(row[key])).length,0).toLocaleString();
+  $('#invalidCount').textContent=rows.reduce((total,row)=>total+Object.keys(F).filter(key=>Number.isFinite(row[key])&&!usable(key,row[key])).length,0).toLocaleString();
+  const headline=(role,valueId,labelId,fallback)=>{const key=roleKey(role),cfg=key&&F[key];$(valueId).textContent=key&&usable(key,last[key])?fmt(last[key],cfg.decimals):'—';$(labelId).textContent=cfg?`${cfg.name}${cfg.unit?' · '+cfg.unit:''}`:fallback};
+  headline('temperature','#headlineTemp','#headlineTempLabel','Temperature');headline('humidity','#headlineHumidity','#headlineHumidityLabel','Humidity');headline('pm25','#headlinePM','#headlinePMLabel','PM2.5');headline('windSpeed','#headlineWind','#headlineWindLabel','Wind speed');
+  $('#latestTime').textContent=time(last.t,'Asia/Ho_Chi_Minh');
+  $('#latestEntry').textContent='#'+last.id.toLocaleString();
+  $('#currentEntry').textContent='#'+last.id.toLocaleString();
+  renderCards();renderDetail();renderTable();renderDiagnostics();refreshStatus();
+}
+function pruneRows(now=Date.now()){const cutoff=now-C.historyHours*3600000;rows=rows.filter(row=>row.t>=cutoff)}
+function merge(feeds,now=Date.now()){const byId=new Map(rows.map(row=>[row.id,row]));feeds.map(normalize).filter(Boolean).forEach(row=>byId.set(row.id,row));const merged=[...byId.values()].sort((a,b)=>a.id-b.id);rows=merged;pruneRows(now);lastKnownOnly=!rows.length&&merged.length>0;if(lastKnownOnly)rows=[merged.at(-1)];updateOverview()}
+function showLastKnown(feeds){rows=feeds.map(normalize).filter(Boolean).sort((a,b)=>a.id-b.id).slice(-1);lastKnownOnly=true;updateOverview()}
+function apiStamp(ms){return new Date(ms).toISOString().replace('T',' ').replace(/\.\d{3}Z$/,'')}
+async function fetchRange(start,end,signal,depth=0){
+  const url=new URL(API);
+  url.searchParams.set('start',apiStamp(start));url.searchParams.set('end',apiStamp(end));
+  /* status=true asks ThingSpeak for the firmware's heartbeat string, which is the only
+     way to tell "sensor dead, board alive" from "board dead" — see build_status(). */
+  url.searchParams.set('results','8000');url.searchParams.set('status','true');url.searchParams.set('_',Date.now());
+  const response=await fetch(url,{cache:'no-store',signal});
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const data=await response.json();
+  if(!Array.isArray(data.feeds))throw new Error('Malformed response');
+  applyChannelMetadata(data.channel);
+  if(data.feeds.length>=8000){
+    if(end-start<=60000||depth>=16)throw new Error('ThingSpeak response remains capped');
+    const mid=Math.floor((start+end)/2),a=await fetchRange(start,mid,signal,depth+1),b=await fetchRange(mid,end,signal,depth+1);
+    return[...a,...b];
+  }
+  return data.feeds;
+}
+async function fetchLatest(signal){
+  const url=new URL(API);url.searchParams.set('results','1');url.searchParams.set('status','true');url.searchParams.set('_',Date.now());
+  const response=await fetch(url,{cache:'no-store',signal});if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const data=await response.json();if(!Array.isArray(data.feeds))throw new Error('Malformed response');applyChannelMetadata(data.channel);return data.feeds;
+}
+function initialError(message){
+  $('#cards').innerHTML='<div class="empty"><div><b>Could not load station history.</b><br><span data-error-detail></span><br><button class="btn" data-retry style="margin-top:12px">Try again</button></div></div>';
+  $('#cards [data-error-detail]').textContent=message;$('#cards [data-retry]').onclick=()=>poll(true);
+  $('#dataTable tbody').innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--muted)">No records loaded. Use Refresh now to retry.</td></tr>';
+  $('#pageLabel').textContent='0 rows';
+}
+function schedule(started=Date.now()){
+  clearTimeout(pollTimer);if(disposed)return;
+  if(!$('#auto').checked){nextPoll=0;setConnection('paused');return}
+  nextPoll=started+POLL_INTERVAL_MS;pollTimer=setTimeout(()=>poll(false),Math.max(0,nextPoll-Date.now()));
+}
+async function loadInitialHistory(){
+  const end=Date.now()+1000,start=Math.max(DATA_START,end-C.historyHours*3600000);
+  /* Epoch not reached yet (firmware still being flashed): no observation can exist in the
+     window, and asking ThingSpeak for start>end answers HTTP 400 — which would surface as
+     a red "connection unavailable" and read as a station fault. Wait quietly instead. */
+  if(start>=end){rows=[];lastKnownOnly=false;updateOverview();setConnection('pending');return}
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+  setConnection('loading');
+  try{let feeds=await fetchRange(start,end,controller.signal);if(feeds.length)merge(feeds,end);else{feeds=await fetchLatest(controller.signal);if(!feeds.length)throw new Error('No data returned');showLastKnown(feeds)}setConnection('ok')}finally{clearTimeout(timeout)}
+}
+async function poll(initial=false){
+  if(busy||disposed)return;
+  const started=Date.now(),before=rows.length,hadRows=before>0;busy=true;clearTimeout(pollTimer);
+  try{
+    if(initial||!rows.length)await loadInitialHistory();
+    else{
+      setConnection('loading');
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+      try{const start=Math.max(DATA_START,lastKnownOnly?Date.now()-C.historyHours*3600000:rows.at(-1).t-1000),feeds=await fetchRange(start,Date.now()+1000,controller.signal);if(feeds.length)merge(feeds);setConnection('ok')}finally{clearTimeout(timeout)}
+    }
+    logFetch(true,connectionState==='pending'?'data epoch not reached — no request sent':hadRows?'incremental poll':'initial history load',Date.now()-started,Math.max(0,rows.length-before));
+  }catch(error){
+    setConnection('error');
+    logFetch(false,error&&error.message||String(error),Date.now()-started,0);
+    if(!hadRows)initialError(error.message);
+  }finally{busy=false;schedule(started)}
+}
+
+/* ============================================================
+   SECTION 04 — DIAGNOSTICS
+   Answers one question: is the fault in the station, in the link, or in one
+   sensor? Everything is derived from data already loaded — no extra API calls.
+   ============================================================ */
+/* A Modbus read either returns all of its registers or none, so a fault is always
+   group-shaped, never a single field. Grouping is what turns "four sensors dropped
+   out" into "two Modbus reads timed out", which is the diagnosis worth having.
+   MODBUS_GROUPS / VOLATILE / groupOf are built per channel from roles — see
+   rebuildStationModel() near the top, next to the field model they depend on. */
+const FETCH_LOG_MAX=40,
+      STUCK_RUN=40,
+      RECENT_N=6;
+let fetchLog=[];
+/* Named escHtml, not esc: csvParts() has its own local esc() with CSV semantics, and
+   silently inheriting HTML escaping into a CSV would corrupt the export. */
+const escHtml=v=>String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmtDur(ms){return Number.isFinite(ms)?formatAge(ms).replace(' ago','').replace('just now','under 5 s'):'—'}
+function logFetch(ok,detail,ms,added){fetchLog.push({t:Date.now(),ok,detail,ms,added});if(fetchLog.length>FETCH_LOG_MAX)fetchLog.shift();renderDiagnostics()}
+
+/* Restart detection. The firmware marks its first upload after a reset with a
+   "BOOT." status, so when that is present it is authoritative. Older records
+   predate the heartbeat build, and fall back to the observed signature: temperature,
+   humidity and light all exactly 0 because the sensor had not warmed up yet. */
+const ZERO_SIGNATURE=row=>row.field1===0&&row.field2===0&&row.field3===0;
+/* The firmware tags its first upload after a reset with the reset cause, so the three
+   restarts that need three different responses stay apart in this log:
+     BOOT.        no cause attached
+     BOOT_WDT.    the watchdog fired — the main loop was blocked. A real defect to chase.
+     BOOT_DAILY.  the firmware's own scheduled restart. Expected, not a fault.
+   Keep in sync with build_status() and reset_cause_tag() in firmware/bao_loc.py.
+   The levels matter as much as the text: flagging the daily restart as a fault every
+   single day is exactly how a log teaches its reader to stop believing it. */
+const BOOT_KINDS={WDT:{kind:'wdt',level:'crit'},DAILY:{kind:'daily',level:'ok'}};
+function bootTag(status){
+  const m=typeof status==='string'&&status.match(/^BOOT(?:_([A-Z]+))?\./);
+  if(!m)return null;
+  return m[1]?(BOOT_KINDS[m[1]]||{kind:'other',level:'crit'}):{kind:'power',level:'crit'};
+}
+function bootReason(row){
+  if(row.status){
+    if(row.status.indexOf('BOOT')===0)return 'status';       // board reset — authoritative
+    /* No BOOT marker means the board never restarted, yet the sensor answered with
+       warm-up zeros: the sensor alone was power-cycled. Seen on entry 22333, one record
+       after a FAIL-ALL, when the sensor's supply was pulled and restored. */
+    return ZERO_SIGNATURE(row)?'sensor':null;
+  }
+  return ZERO_SIGNATURE(row)?'zeros':null;                   // pre-heartbeat: cannot tell which
+}
+function isBootRecord(row){return bootReason(row)!==null}
+
+function stationEvents(){
+  /* A restart detected from the zero-signature usually spans several records in a row
+     while the sensor warms up, so collapse that burst into one event instead of logging
+     each frame. A "BOOT." marker is the opposite case and must never be merged — see
+     the reason==='status' handling in the loop below. */
+  const events=[],limit=gapLimitMs(rows),BOOT_MERGE_MS=300000;
+  let run=null;
+  /* Wording has to match how the restart was actually detected — the explicit marker
+     and the legacy zero-signature are different evidence and must not be described
+     interchangeably. */
+  const flush=()=>{
+    if(!run)return;
+    const tag=run.reason==='status'?bootTag(run.status):null;
+    const text=run.reason==='status'
+      ?(tag&&tag.kind==='daily'
+        ?`Scheduled restart — entry #${run.ids[0]} uploaded with status "${run.status}". The firmware reboots itself on a fixed uptime, on purpose, to cap how long an unnoticed fault is allowed to sit there. Expected; it is not evidence of a problem.`
+        :tag&&tag.kind==='wdt'
+        ?`Watchdog reset — entry #${run.ids[0]} uploaded with status "${run.status}". The main loop went unfed for longer than the watchdog window, so the board reset itself and recovered without anyone going to the site. It came back on its own, but whatever blocked the loop is still unexplained.`
+        :`Board restarted — entry #${run.ids[0]} uploaded with status "${run.status}", the firmware's explicit marker for its first upload after a reset, with no reset cause attached. On the build that reports causes that means power-on: a cut, a brown-out, or the button. On the older build it only means the cause was never recorded.`)
+      :run.reason==='sensor'
+      ?`Sensor power-cycled — entry #${run.ids[0]} answered every Modbus read but returned temperature, humidity and light all exactly 0, the values it sends before warming up. The board itself did not restart, so this is the sensor's own supply.`
+      :`Board restarted — ${run.ids.length>1
+          ?`${run.ids.length} records (#${run.ids[0]}–#${run.ids.at(-1)}) report`
+          :`entry #${run.ids[0]} reports`} temperature, humidity and light all exactly 0, the signature of a board that has just powered up. Usually a power cut or a crash.`;
+    events.push({t:run.t,level:tag?tag.level:'crit',text});
+    run=null;
+  };
+  /* A read failure keeps the uploads flowing, so it leaves no time gap and would otherwise
+     vanish from this log the moment it recovered — exactly the outage worth reviewing. */
+  let fail=null;
+  const flushFail=()=>{
+    if(!fail)return;
+    const span=fail.ids.length>1?`${fail.ids.length} records (#${fail.ids[0]}–#${fail.ids.at(-1)})`:`entry #${fail.ids[0]}`,
+      all=fail.groups.length===MODBUS_GROUPS.length;
+    events.push({t:fail.t,level:'crit',text:all
+      ?`Sensor stopped answering — all four Modbus reads timed out on ${span}, while the board kept uploading. That is the sensor's own supply or the RS485 pair, not the board.`
+      :`Modbus read failed — ${fail.groups.map(g=>g.label).join(' and ')} timed out on ${span}; the other reads succeeded.`});
+    fail=null;
+  };
+  rows.forEach((row,i)=>{
+    if(i){const gap=row.t-rows[i-1].t;
+      if(gap>limit)events.push({t:row.t,level:gap>limit*6?'crit':'warn',text:`Nothing received for ${fmtDur(gap)} — uploads resumed at entry #${row.id}`});}
+    const reason=bootReason(row);
+    /* The firmware clears its first_upload flag after the first successful upload, so it
+       sends "BOOT." exactly once per reset: two markers are two distinct reboots and must
+       each get their own line. Merging them would render a crash-loop — five resets in ten
+       minutes — as a single restart, hiding the one pattern this log exists to expose. */
+    if(run&&(reason==='status'||row.t-run.last>BOOT_MERGE_MS||(reason&&reason!==run.reason)))flush();
+    if(reason){if(!run)run={t:row.t,ids:[],last:row.t,reason,status:row.status};run.ids.push(row.id);run.last=row.t;if(reason==='status')flush()}
+    const dead=deadGroups(row),sig=dead.map(g=>g.id).join(',');
+    if(fail&&fail.sig!==sig)flushFail();
+    if(sig){if(!fail)fail={t:row.t,sig,groups:dead,ids:[]};fail.ids.push(row.id)}
+  });
+  flush();flushFail();
+  return events.sort((a,b)=>a.t-b.t);
+}
+/* State is judged on the MOST RECENT records plus the age of the last good value,
+   not on lifetime totals. Judging on totals made a sensor read "ok" forever once the
+   station went quiet, because its last received value had been valid — the table was
+   describing history while the reader assumed it described right now. */
+/* Split into a cached row-derived half and a live time-derived half.
+   verdict() runs once a second off the countdown tick, and this used to walk every
+   loaded row eight times over, plus sort the whole interval list twice more, on every
+   one of those ticks — a full 24 h window here is a few thousand records. The row
+   scans only change when a fetch actually adds rows, so they are keyed on rowsVersion.
+   What must NOT be cached is anything derived from the clock: the age of the last good
+   value and every level that turns on it. Freezing those is exactly the bug the comment
+   above describes — a table that describes history while the reader reads it as now. */
+function cadenceCached(){
+  if(cadenceVersion!==rowsVersion){cadenceVersion=rowsVersion;cadenceValue=cadenceMs(rows)}
+  return cadenceValue;
+}
+function sensorHealthBase(){
+  if(healthBaseVersion===rowsVersion&&healthBase)return healthBase;
+  const recent=rows.slice(-RECENT_N);
+  healthBase=Object.entries(F).map(([key,cfg])=>{
+    const values=rows.map(row=>row[key]),n=values.length,
+      missing=values.filter(v=>!Number.isFinite(v)).length,
+      outOfRange=values.filter(v=>Number.isFinite(v)&&!usable(key,v)).length,
+      good=values.filter(v=>usable(key,v)),tail=good.slice(-STUCK_RUN),
+      stuck=VOLATILE[key]&&tail.length>=STUCK_RUN&&new Set(tail).size===1,
+      recentMissing=recent.filter(row=>!Number.isFinite(row[key])).length,
+      /* Out-of-range must be judged on the recent window too. Counting it over the whole
+         window let one transient — a single 0.0 dB frame while the sensor warmed up after
+         a power cycle — hold the sensor at "degraded" for the next 24 hours, contradicting
+         this card's own promise that state reflects the newest records. */
+      recentOutOfRange=recent.filter(row=>Number.isFinite(row[key])&&!usable(key,row[key])).length;
+    let lastRow=null;for(let i=rows.length-1;i>=0;i--)if(usable(key,rows[i][key])){lastRow=rows[i];break}
+    return{key,cfg,group:groupOf(key),n,missing,outOfRange,recentMissing,recentOutOfRange,
+      recentLen:recent.length,goodLen:good.length,stuck,lastRow};
+  });
+  healthBaseVersion=rowsVersion;
+  return healthBase;
+}
+function sensorHealth(){
+  const now=Date.now(),silent=Math.max(120000,(cadenceCached()||POLL_INTERVAL_MS)*3);
+  return sensorHealthBase().map(b=>{
+    const lastAge=b.lastRow?now-b.lastRow.t:null;
+    let level='ok',note='ok';
+    if(!b.goodLen){level='crit';note='never answered'}
+    else if(b.recentLen&&b.recentMissing===b.recentLen){level='crit';note='not answering'}
+    else if(b.recentMissing){level='warn';note=`dropping out ${b.recentMissing}/${b.recentLen}`}
+    else if(lastAge!=null&&lastAge>silent){level='warn';note='no fresh data'}
+    else if(b.stuck){level='warn';note='frozen value'}
+    else if(b.recentOutOfRange){level='warn';note='out of range'}
+    else if(b.missing||b.outOfRange){level='ok';note='recovered'}
+    return{...b,level,note,lastAge};
+  });
+}
+/* Which whole Modbus reads produced nothing. The firmware states this outright in its
+   status ("FAIL-PM-WIND"), so trust that when present and only fall back to inferring
+   it from absent fields for records written before the heartbeat build.
+   Order matters: FAIL-ALL must be matched before the generic FAIL- list, because "ALL"
+   is not a group id and would otherwise parse to an empty list. */
+function deadGroups(row){
+  /* No station mode, no Modbus verdict. On a channel whose fields we could not map to
+     all four reads, the field-absence fallback below would happily "identify" a read
+     that this channel never performed. Returning nothing degrades every caller at once. */
+  if(!row||!STATION_MODE)return[];
+  const s=row.status;
+  if(s){
+    if(s.indexOf('FAIL-ALL')>=0)return MODBUS_GROUPS.slice();
+    const m=s.match(/FAIL-(.+)$/);
+    if(m)return m[1].split('-').map(id=>MODBUS_GROUPS.find(g=>g.id===id)).filter(Boolean);
+    if(s.indexOf('ALL_OK')>=0)return[];
+  }
+  return MODBUS_GROUPS.filter(g=>g.fields.every(f=>!Number.isFinite(row[f])));
+}
+function verdict(){
+  if(!rows.length)return DATA_START>Date.now()
+    ?{level:'',title:'Waiting for the data epoch',detail:`Nothing is wrong. The configured epoch is ${time(DATA_START,'Asia/Ho_Chi_Minh')} ICT, and records uploaded before it are ignored on purpose.`}
+    :{level:'crit',title:'No records',detail:connectionState==='error'
+        ?'This page could not reach ThingSpeak. Check this device’s own internet connection first — the station may be perfectly fine.'
+        :'ThingSpeak answered but returned no rows in the configured window. Either the station has not uploaded anything, or dataStartIso is set later than the newest entry.'};
+  const age=Date.now()-rows.at(-1).t,cadence=cadenceCached()||POLL_INTERVAL_MS,silent=Math.max(120000,cadence*3),
+    health=sensorHealth(),broken=health.filter(s=>s.level==='crit'),degraded=health.filter(s=>s.level==='warn');
+  if(connectionState==='error')return{level:'crit',title:'This page cannot reach ThingSpeak',detail:`Link fault, not necessarily a station fault — the newest record held locally is ${fmtDur(age)} old. The fetch log on the right carries the exact error.`};
+  /* What total silence means depends on the firmware build, so say which one is loaded. */
+  const heartbeat=rows.at(-1).status!=null;
+  if(age>silent*6)return{level:'crit',title:'Station offline',detail:`Nothing received for ${fmtDur(age)}, against an expected ${fmtDur(cadence)}. `+(heartbeat
+    ?'This build uploads a heartbeat even when every sensor read fails, so total silence means the board itself stopped — power loss, a crash, or lost Wi-Fi. It is not a sensor fault.'
+    :'ThingSpeak is answering, so the break is upstream of it. Note this build uploads nothing when every sensor read fails, so a dead sensor and a dead board look identical from here.')};
+  if(age>silent)return{level:'warn',title:'Station silent',detail:`Last record ${fmtDur(age)} ago, against an expected ${fmtDur(cadence)}. A couple of missed uploads — still within normal recovery.`};
+  /* A fault is group-shaped, so name the failing Modbus read rather than listing
+     the individual fields it happens to carry. */
+  const newest=rows.at(-1),dead=deadGroups(newest);
+  /* dead.length must be checked first: with station mode off both sides are 0, and
+     "0 === 0" would announce that every Modbus read failed on a channel that has none. */
+  if(dead.length&&dead.length===MODBUS_GROUPS.length)return{level:'crit',title:'Board is uploading, sensor is not answering',detail:`All four Modbus reads returned nothing on entry #${newest.id}${newest.status?` (firmware status ${newest.status})`:''}. The ESP32 still has power and Wi-Fi — so this is the sensor's own supply or the RS485 pair, not the board.`};
+  if(dead.length){
+    const order=MODBUS_GROUPS.map(g=>g.id),ids=dead.map(g=>g.id),
+      tailFailure=order.slice(-ids.length).join()===ids.join();
+    return{level:'crit',title:`Modbus read failing — ${dead.map(g=>g.label).join(' and ')}`,
+      detail:`Register${dead.length>1?'s':''} ${dead.map(g=>g.reg).join(', ')} timed out on entry #${newest.id} while the other reads succeeded.`+
+        (tailFailure?` The firmware reads in the order temp/humidity/noise → light → PM2.5/PM10/pressure → wind, and exactly the last ${ids.length} transactions failed. The ordering is useful evidence, but does not by itself distinguish power, wiring, timing, or sensor behavior.`:` A mid-sequence failure identifies which transactions did not respond; it does not establish why.`)};
+  }
+  if(broken.length)return{level:'crit',title:`${broken.length} sensor${broken.length>1?'s':''} not answering`,detail:`${broken.map(s=>s.cfg.name).join(', ')}. The board is still uploading, so power and Wi-Fi are fine — this points at the RS485 wiring or the Modbus read for those registers.`};
+  const lastBoot=[...rows].reverse().find(isBootRecord),lastBootTag=lastBoot?bootTag(lastBoot.status):null;
+  /* A scheduled restart is the firmware doing what it was told, so it must not raise a
+     verdict at all — otherwise the station reads as "degraded" for fifteen minutes every
+     single day and the one banner people actually look at stops meaning anything. */
+  if(lastBoot&&Date.now()-lastBoot.t<900000&&!(lastBootTag&&lastBootTag.kind==='daily')){
+    if(bootReason(lastBoot)==='sensor')return{level:'warn',title:'Sensor power-cycled recently',detail:`The sensor came back at ${time(lastBoot.t,'Asia/Ho_Chi_Minh')} ICT — entry #${lastBoot.id} answered every read but with warm-up zeros. The board never restarted, so this is the sensor's own supply. Readings since then are valid.`};
+    if(lastBootTag&&lastBootTag.kind==='wdt')return{level:'crit',title:'Watchdog had to reset the board',detail:`The board came back at ${time(lastBoot.t,'Asia/Ho_Chi_Minh')} ICT — entry #${lastBoot.id} reports status "${lastBoot.status}", meaning the main loop stopped being fed and the watchdog reset it. Recovery worked and nobody had to go to the site, but the cause is unexplained: check the fetch log and the events around the gap before this entry.`};
+    return{level:'warn',title:'Station restarted recently',detail:`The board came back at ${time(lastBoot.t,'Asia/Ho_Chi_Minh')} ICT — entry #${lastBoot.id} carries the fresh power-up signature. Uploads have resumed. If this keeps repeating, suspect the power supply or a brown-out rather than the sensors.`};
+  }
+  if(degraded.length)return{level:'warn',title:'Uploading, some sensors degraded',detail:degraded.map(s=>`${s.cfg.name} (${s.note})`).join(', ')+'.'};
+  /* Not "datasheet range": the ranges in FIELD_RULES are deliberately WIDER than the
+     SEN0658 datasheet, because their job is to catch a garbage frame, not to certify a
+     reading. Calling them datasheet limits would promise a calibration this page has
+     never done — and the boundary note above already calls them plausibility checks. */
+  return{level:'ok',title:'Station healthy',detail:`Uploading every ${fmtDur(cadence)}, newest record ${fmtDur(age)} old, all eight sensors answering inside the broad plausibility ranges this page applies. Those are sanity limits, not calibration.`};
+}
+function renderVerdict(){const v=verdict();$('#diagVerdict').dataset.level=v.level;$('#diagTitleText').textContent=v.title;$('#diagDetail').textContent=v.detail}
+function renderDiagnostics(){
+  renderVerdict();
+  const newest=rows.at(-1);
+  $('#diagStatus').innerHTML=!newest?''
+    :!STATION_MODE
+      ?`Newest entry #${newest.id} · this channel's fields do not map to all four Modbus reads, so firmware-level diagnosis is off. The per-signal health below still applies; the Modbus column does not.`
+    :newest.status
+      ?`Newest entry #${newest.id} · firmware status <b>${escHtml(newest.status)}</b> — the board reports which Modbus reads succeeded, so a silent channel means the board itself, never a dead sensor.`
+      :`Newest entry #${newest.id} · this record carries no firmware status, so it predates the heartbeat build. Until the board is reflashed, a sensor that loses power looks the same as a board that loses power.`;
+  $('#diagSensors').innerHTML=rows.length
+    ?sensorHealth().map(s=>`<tr><td>${escHtml(s.cfg.name)}</td><td class="grp">${escHtml(s.group?`${s.group.id} ${s.group.reg}`:'—')}</td><td>${s.missing?`${s.missing} / ${s.n}`:'0'}</td><td>${s.recentMissing?`${s.recentMissing} / ${Math.min(RECENT_N,s.n)}`:'0'}</td><td>${s.outOfRange||'0'}</td><td>${s.lastAge==null?'—':escHtml(fmtDur(s.lastAge))}</td><td>${s.lastRow?fmt(s.lastRow[s.key],s.cfg.decimals):'—'}</td><td><span class="pill" data-level="${s.level}">${escHtml(s.note)}</span></td></tr>`).join('')
+    :'<tr><td colspan="8" class="diag-empty">No records loaded.</td></tr>';
+  const events=rows.length?stationEvents().slice(-25).reverse():[];
+  $('#diagEvents').innerHTML=events.length
+    ?events.map(e=>`<li><time>${time(e.t,$('#zone').value)}</time><span class="ev-${e.level}">${escHtml(e.text)}</span></li>`).join('')
+    :'<li class="diag-empty">No gap or restart detected in the loaded window.</li>';
+  $('#diagFetch').innerHTML=fetchLog.length
+    ?[...fetchLog].reverse().map(f=>`<li><time>${time(f.t,$('#zone').value)} · ${f.ms} ms</time><span class="${f.ok?'':'ev-crit'}">${f.ok?'OK':'FAILED'} — ${escHtml(f.detail)}${f.ok&&f.added?` · +${f.added} record${f.added>1?'s':''}`:''}</span></li>`).join('')
+    :'<li class="diag-empty">No fetch attempt recorded yet.</li>';
+}
+/* Plain-text dump for pasting into a chat when asking for help. Carries the config,
+   the window, every sensor's state and both logs — and no API key. */
+function diagnosticReport(){
+  const now=Date.now(),v=verdict(),L=[],pad=(s,n)=>String(s).padEnd(n);
+  L.push('STATION DIAGNOSTIC REPORT — '+(C.channel.name||('channel '+C.channel.id)));
+  L.push('generated   '+time(now,'Asia/Ho_Chi_Minh')+' ICT  ('+new Date(now).toISOString()+')');
+  L.push('verdict     ['+(v.level||'pending').toUpperCase()+'] '+v.title);
+  L.push('            '+v.detail);
+  L.push('');L.push('CONFIG');
+  L.push('  channel         '+C.channel.id+'  '+C.channel.name);
+  L.push('  data epoch      '+(EPOCH_ISO||'(none set for this channel)')+(DATA_START?'   = '+time(DATA_START,'Asia/Ho_Chi_Minh')+' ICT':''));
+  L.push('  station mode    '+(STATION_MODE?'on - all four Modbus reads identified':'off - channel is not laid out like our stations'));
+  L.push('  historyHours    '+C.historyHours);
+  L.push('  pollIntervalMs  '+C.pollIntervalMs);
+  L.push('  calmThreshold   '+C.calmThresholdMs+' m/s');
+  L.push('  connection      '+connectionState+'   auto-refresh '+($('#auto').checked?'on':'off'));
+  L.push('  browser online  '+navigator.onLine);
+  L.push('');L.push('WINDOW');
+  if(rows.length){
+    L.push('  records         '+rows.length);
+    L.push('  first           '+time(rows[0].t,'Asia/Ho_Chi_Minh')+' ICT   entry #'+rows[0].id);
+    L.push('  last            '+time(rows.at(-1).t,'Asia/Ho_Chi_Minh')+' ICT   entry #'+rows.at(-1).id);
+    L.push('  age of last     '+fmtDur(now-rows.at(-1).t));
+    L.push('  median cadence  '+fmtDur(cadenceMs(rows)));
+  }else L.push('  records         0');
+  L.push('');
+  if(rows.length&&STATION_MODE){
+    const dead=deadGroups(rows.at(-1));
+    L.push('MODBUS READS on newest entry #'+rows.at(-1).id+'   (firmware order: THN -> LUX -> PM -> WIND)');
+    L.push('  firmware status  '+(rows.at(-1).status||'(none - board predates the heartbeat build)'));
+    MODBUS_GROUPS.forEach(g=>L.push('  '+pad(g.id,6)+pad(g.reg,9)+pad(g.label,26)+(dead.includes(g)?'TIMED OUT':'ok')));
+    L.push('');
+  }
+  L.push('SENSORS               group   missing  recent  out-of-range  last good      latest           state');
+  if(rows.length)sensorHealth().forEach(s=>L.push('  '+pad(s.cfg.name,20)+pad(s.group?s.group.id:'—',8)+pad(s.missing+'/'+s.n,9)+pad(s.recentMissing+'/'+Math.min(RECENT_N,s.n),8)+pad(s.outOfRange,14)+pad(s.lastAge==null?'—':fmtDur(s.lastAge),15)+pad(s.lastRow?fmt(s.lastRow[s.key],s.cfg.decimals)+' '+s.cfg.unit:'—',17)+s.note));
+  else L.push('  (no records)');
+  L.push('');L.push('STATION EVENTS');
+  const ev=rows.length?stationEvents().slice(-25):[];
+  ev.length?ev.forEach(e=>L.push('  '+time(e.t,'Asia/Ho_Chi_Minh')+'  ['+e.level+'] '+e.text)):L.push('  none');
+  L.push('');L.push('FETCH LOG  (oldest first)');
+  fetchLog.length?fetchLog.forEach(f=>L.push('  '+time(f.t,'Asia/Ho_Chi_Minh')+'  '+pad(f.ok?'OK':'FAIL',6)+String(f.ms).padStart(6)+' ms  '+f.detail+(f.added?'  +'+f.added+' rec':''))):L.push('  none');
+  return L.join('\n');
+}
+
+/* ============================================================
+   EVENT BINDINGS + LIFECYCLE
+   ============================================================ */
+$('#prev').onclick=()=>{if(page){page--;renderTable()}};
+renderTableHead();
+$('#channelApply').onclick=loadChannelFromInput;
+$('#channelInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();loadChannelFromInput()}});
+$('#channelInput').addEventListener('input',()=>{$('#channelError').textContent=''});
+$('#next').onclick=()=>{page++;renderTable()};
+$('#search').oninput=()=>{page=0;renderTable()};
+document.querySelectorAll('.dl-opt').forEach(b=>b.onclick=()=>exportCSV(b.dataset.scope));
+$('#dlSummary').addEventListener('click',e=>{if(csvBusy)e.preventDefault()});     // block toggle mid-crawl
+addEventListener('pointerdown',e=>{const m=$('#dlMenu');if(m.open&&!m.contains(e.target))m.open=false;if(tipPinned&&!$('#focusShell').contains(e.target)){tipPinned=false;hideTip(true)}},true);
+$('#metric').onchange=renderDetail;
+$('#scale').onchange=renderDetail;
+$('#zone').onchange=renderDetail;
+document.querySelectorAll('[data-window-hours]').forEach(button=>button.onclick=()=>{focusHours=button.dataset.windowHours;focusPosition=100;renderDetail()});
+function nudgeWindow(direction){const b=focusSelection();if(!b.movable)return;focusPosition=Math.max(0,Math.min(100,focusPosition+direction*Math.max(2,b.windowMs/b.movable*50)));renderDetail()}
+$('#windowPrev').onclick=()=>nudgeWindow(-1);$('#windowNext').onclick=()=>nudgeWindow(1);
+$('#windowPosition').oninput=()=>{focusPosition=Number($('#windowPosition').value);renderDetail()};
+const ovSvg=$('#overviewChart');
+ovSvg.addEventListener('pointerdown',ev=>{if(!rows.length||!focusSelection().movable)return;ev.preventDefault();overviewDragging=true;ovSvg.style.cursor='grabbing';try{ovSvg.setPointerCapture(ev.pointerId)}catch(_){}overviewDrag(ev)});
+ovSvg.addEventListener('pointermove',ev=>{if(overviewDragging)overviewDrag(ev)});
+function endOverviewDrag(){overviewDragging=false;ovSvg.style.cursor=focusSelection().movable?'grab':'default'}
+ovSvg.addEventListener('pointerup',endOverviewDrag);
+ovSvg.addEventListener('pointercancel',endOverviewDrag);
+$('#diagCopy').onclick=async()=>{
+  const btn=$('#diagCopy'),idle=btn.dataset.idle||btn.textContent,text=diagnosticReport();
+  btn.dataset.idle=idle;let copied=false;
+  try{await navigator.clipboard.writeText(text);copied=true}
+  catch(_){const ta=$('#diagReport');ta.value=text;ta.hidden=false;ta.focus();ta.select();try{copied=document.execCommand('copy')}catch(__){}}
+  btn.textContent=copied?'✓ Copied to clipboard':'✕ Copy failed — select the text below';
+  setTimeout(()=>{btn.textContent=idle},2800);
+};
+$('#diagShow').onclick=()=>{const ta=$('#diagReport'),show=ta.hidden;if(show)ta.value=diagnosticReport();ta.hidden=!show;$('#diagShow').setAttribute('aria-expanded',String(show))};
+$('#refresh').onclick=()=>poll(!rows.length);
+$('#auto').onchange=()=>$('#auto').checked?poll(!rows.length):schedule();
+function startCountdown(){clearInterval(countdownTimer);countdownTimer=setInterval(()=>{refreshStatus();$('#countdown').textContent=nextPoll?`next check in ${Math.max(0,Math.ceil((nextPoll-Date.now())/1000))}s`:$('#auto').checked?'waiting…':'paused'},1000)}
+startCountdown();
+addEventListener('resize',()=>{if(rows.length&&!resizeRaf)resizeRaf=requestAnimationFrame(()=>{resizeRaf=0;renderDetail()})});
+addEventListener('pagehide',()=>{disposed=true;clearTimeout(pollTimer);clearInterval(countdownTimer)});
+addEventListener('pageshow',event=>{if(event.persisted){disposed=false;startCountdown();$('#auto').checked?poll(!rows.length):setConnection('paused')}});
+poll(true);
+</script></body></html>

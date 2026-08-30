@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# BÍ MẬT CỦA TRẠM — Wi-Fi password + ThingSpeak Write API Key.
+# Chỉ sống trên board và trên máy anh. Không bao giờ commit.
+# Dùng firmware/station_secrets.example.py làm mẫu.
+# ---------------------------------------------------------------------------
+station_secrets.py
+firmware/station_secrets.py
+
+# Python
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Vercel
+.vercel/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+
+# OneDrive tạo file xung đột khi hai máy sửa cùng lúc — đừng để lọt vào repo.
+*-ninhh.md
+*[Cc]onflict*
