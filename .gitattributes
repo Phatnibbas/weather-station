@@ -1,9 +1,29 @@
-# Ép LF cho mọi file văn bản, kể cả khi checkout trên Windows.
+# Chuẩn hoá kiểu xuống dòng.
 #
-# Không phải chuyện thẩm mỹ: tests/test_firmware_recovery.py khoá khối
-# self-recovery của hai firmware phải trùng NHAU TỪNG BYTE. Nếu git checkout
-# một file thành CRLF còn file kia thành LF, test sẽ fail vì lý do không liên
-# quan gì tới nội dung, và người đọc sẽ đi tìm bug ở đúng chỗ không có bug.
+# Không phải chuyện thẩm mỹ: tests/test_firmware_recovery.py khoá các khối dùng
+# chung của hai firmware phải trùng NHAU TỪNG BYTE. Nếu hai file bị đối xử khác
+# nhau về CRLF/LF, test sẽ fail vì lý do không liên quan gì tới nội dung, và
+# người đọc sẽ đi tìm bug ở đúng chỗ không có bug.
+#
+# ĐO NGÀY 2026-08-30, git 2.53.0.windows.1 — đọc kỹ trước khi tin dòng dưới:
+#
+#   ĐÚNG: blob lưu trong repo là LF. `git cat-file -p HEAD:firmware/bao_loc.py`
+#         cho CR=0. Nên checkout trên Linux/macOS/CI nhận LF, và không có bản
+#         trộn CRLF nào lọt được vào lịch sử.
+#
+#   KHÔNG ĐÚNG: `eol=lf` KHÔNG ép được working tree trên máy Windows này. Clone
+#         sạch cho CR=1851 ở cả `core.autocrlf=true` LẪN `false` (đã thử bằng
+#         hai lần clone riêng, không phải suy đoán). `git check-attr` vẫn báo
+#         `eol: lf`, nhưng checkout không tôn trọng. NGUYÊN NHÂN CHƯA XÁC ĐỊNH —
+#         đừng viết vào đây một lời giải thích chưa đo được.
+#
+# Vậy thứ THỰC SỰ bảo vệ test không phải là "mọi nơi đều LF", mà là "trong cùng
+# một working tree, hai file được đối xử GIỐNG NHAU". Điều đó đúng ở cả hai
+# trường hợp trên, và đã được chứng minh: clone sạch từ GitHub rồi chạy test cho
+# 401 PASS, `sync_shared_blocks.py --check` báo OK.
+#
+# Nếu sau này test byte-identical fail mà nội dung rõ ràng giống nhau, nghi chỗ
+# này trước tiên và đo lại bằng: grep -c $'\r' firmware/*.py
 * text=auto eol=lf
 
 *.png binary
