@@ -6,71 +6,8 @@
    that - dung bien no thanh skip, vi "kenh tra ve gi" chinh la thu dang kiem.
 
    Chay:  node tests/test_dashboard.mjs                                */
-import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-
-const HTML = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "public",
-  "index.html",
-);
-const html = readFileSync(HTML, "utf8");
-const cfg = html.match(
-  /<script id="appConfig" type="application\/json">([\s\S]*?)<\/script>/,
-)[1];
-const js = html.slice(html.lastIndexOf("<script>") + 8, html.lastIndexOf("</script>"));
-
-class El {
-  constructor(sel = "") {
-    this.sel = sel; this._text = ""; this.value = ""; this.innerHTML = "";
-    this.dataset = {}; this.style = {}; this.hidden = false; this.disabled = false;
-    this.checked = true; this.clientWidth = 900; this.clientHeight = 380;
-    this.offsetWidth = 80; this.offsetHeight = 40;
-    this.childNodes = [{ nodeValue: "" }];
-    this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
-    this.children = [];
-  }
-  get textContent() { return this._text; }
-  set textContent(v) { this._text = String(v); }
-  setAttribute() {} getAttribute() { return null; } removeAttribute() {}
-  addEventListener() {}
-  append(c) { this.children.push(c); if (c && c.value !== undefined && !this.value) this.value = c.value; }
-  remove() {} click() {} focus() {} select() {} contains() { return false; }
-  querySelector() { return new El(); } querySelectorAll() { return []; }
-  scrollIntoView() {} setPointerCapture() {}
-  getBoundingClientRect() { return { width: 900, height: 380, left: 0, top: 0 }; }
-}
-
-function boot(channelId) {
-  const cache = new Map();
-  const el = (s) => { if (!cache.has(s)) cache.set(s, new El(s)); return cache.get(s); };
-  el("#zone").value = "Asia/Ho_Chi_Minh";
-  el("#scale").value = "robust";
-  const document = {
-    documentElement: new El("html"), body: new El("body"), title: "",
-    getElementById: (id) => (id === "appConfig" ? { textContent: cfg } : el("#" + id)),
-    querySelector: (s) => el(s), querySelectorAll: () => [],
-    createElement: () => new El(), addEventListener: () => {}, execCommand: () => true,
-  };
-  const sandbox = {
-    document, console, fetch, Intl, URL, URLSearchParams, Blob, AbortController,
-    setTimeout, clearTimeout, setInterval, clearInterval,
-    Date, Math, JSON, Number, String, Object, Array, Map, Set, Promise, Error, RegExp, isNaN,
-    requestAnimationFrame: (f) => setTimeout(f, 0), cancelAnimationFrame: clearTimeout,
-    addEventListener: () => {},
-    navigator: { onLine: true, clipboard: { writeText: async () => {} } },
-    location: { search: `?channel=${channelId}`, href: `https://x.invalid/?channel=${channelId}` },
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-    matchMedia: () => ({ matches: false }),
-  };
-  sandbox.window = sandbox; sandbox.globalThis = sandbox;
-  const ctx = vm.createContext(sandbox);
-  vm.runInContext(js, ctx, { filename: `app.js(${channelId})` });
-  return { ctx, el };
-}
+import { boot } from "./harness.mjs";
 
 let ok = 0; const fail = [];
 const check = (n, c, d = "") => { c ? ok++ : fail.push(`${n}  ${d}`); };
@@ -79,13 +16,39 @@ const R = (ctx, expr) => vm.runInContext(expr, ctx);
 // ================= 1. BAO LOC =================
 const bl = boot(3448221);
 check("Bao Loc: STATION_MODE bat", R(bl.ctx, "STATION_MODE") === true);
-check("Bao Loc: DATA_START = 0 (chua chot epoch)", R(bl.ctx, "DATA_START") === 0);
+// Moc chot 2026-08-30: entry 141 la ban ghi dau tien do THAT tai Bao Loc
+// (ap suat 90,1 kPa). Entry 1-53 sai field map, 54-140 la chay thu o Sai Gon.
+check("Bao Loc: DATA_START dung epoch entry 141",
+  R(bl.ctx, "DATA_START") === Date.parse("2026-08-09T04:41:28Z"),
+  String(R(bl.ctx, "DATA_START")));
 
 // ================= 2. SAI GON =================
 const sg = boot(3428136);
 check("Sai Gon: DATA_START dung epoch rieng",
   R(sg.ctx, "DATA_START") === Date.parse("2026-07-21T17:17:02Z"),
   String(R(sg.ctx, "DATA_START")));
+
+// Moi kenh phai co LY DO cat cua rieng no, va hai ly do phai KHAC nhau - neu
+// giong nhau thi mot trong hai dang bi ke chuyen cua tram kia.
+for (const [name, c] of [["Bao Loc", bl.ctx], ["Sai Gon", sg.ctx]])
+  check(`${name}: epoch co ly do rieng`, R(c, "EPOCH_REASON").length > 20,
+    R(c, "EPOCH_REASON"));
+check("hai tram co ly do cat KHAC nhau",
+  R(bl.ctx, "EPOCH_REASON") !== R(sg.ctx, "EPOCH_REASON"));
+
+// ---- cho chon tram: co san hai tram + mot loi vao kenh bat ky ----
+const options = (ctx) =>
+  R(ctx, "JSON.stringify(document.querySelector('#channelSelect').children.map(o=>o.value))");
+check("cho chon tram co du 2 tram + muc 'kenh khac'",
+  options(bl.ctx) === JSON.stringify(["3448221", "3428136", "__other__"]),
+  options(bl.ctx));
+check("dang mo Bao Loc -> o chon dung Bao Loc",
+  R(bl.ctx, "document.querySelector('#channelSelect').value") === "3448221");
+check("dang mo tram co san -> ô go ID an di",
+  R(bl.ctx, "document.querySelector('#customChannel').hidden") === true);
+// Muc chon phai lay tu knownChannels, khong duoc go cung trong JavaScript.
+check("danh sach tram lay tu config, khong nam trong JS",
+  R(bl.ctx, "C.knownChannels.length") === 2);
 
 // cho ca hai nap xong metadata that
 await new Promise((r) => setTimeout(r, 10000));
@@ -148,6 +111,33 @@ check("kenh la: verdict van chay", !!(vLa && vLa.title));
 check("kenh la: field la khong bi bia don vi",
   R(bl.ctx, "F.field1.unit") === "" && R(bl.ctx, "F.field1.range") === null,
   `unit=${R(bl.ctx, "F.field1.unit")}`);
+// Cot kenh KHONG khai bao phai bien mat han. Truoc day chung thua ke nhan cua
+// Bao Loc: field5..8 hien ra "Wind direction °", "PM2.5 µg/m³", "PM10 µg/m³",
+// "Pressure kPa" - so bia, co don vi, co dai hop ly, va vao thang header CSV.
+check("kenh la: chi giu dung 4 field kenh co khai bao",
+  R(bl.ctx, "Object.keys(F).join(',')") === "field1,field2,field3,field4",
+  R(bl.ctx, "Object.keys(F).join(',')"));
+check("kenh la: bang suc khoe chi con 4 dong",
+  R(bl.ctx, "sensorHealth().length") === 4,
+  String(R(bl.ctx, "sensorHealth().length")));
+check("kenh la: header CSV khong con cot bia",
+  !R(bl.ctx, "csvParts(rows)[0]").includes("Wind speed"),
+  R(bl.ctx, "csvParts(rows)[0]").slice(0, 120));
+check("kenh la: verdict khong noi 'all 8 sensors'",
+  !/all 8 sensors/.test(R(bl.ctx, "verdict()").detail || ""),
+  R(bl.ctx, "verdict()").detail);
+// Cho chon bam theo CHANNEL ID dang mo, khong phai theo metadata - nen phai thu
+// bang mot context rieng mo thang mot ID khong co trong danh sach. offline:true
+// de khong danh vao mang cho mot kenh khong ton tai.
+const stranger = boot(999999999, { offline: true });
+check("kenh ngoai danh sach: o chon nhay sang 'kenh khac'",
+  R(stranger.ctx, "document.querySelector('#channelSelect').value") === "__other__",
+  R(stranger.ctx, "document.querySelector('#channelSelect').value"));
+check("kenh ngoai danh sach: hien o go Channel ID",
+  R(stranger.ctx, "document.querySelector('#customChannel').hidden") === false);
+check("kenh ngoai danh sach: khong muon ten tram nao",
+  R(stranger.ctx, "C.channel.name") === "",
+  R(stranger.ctx, "C.channel.name"));
 check("kenh la: report noi ro station mode off",
   R(bl.ctx, "diagnosticReport()").includes("station mode    off"));
 console.log(`\n  [kenh la] ${vLa.title}`);

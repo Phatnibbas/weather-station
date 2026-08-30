@@ -71,10 +71,14 @@ button,input,select{font:inherit;color:inherit}
 .icon-btn:hover{border-color:var(--accent)}
 .channel-picker{display:flex;align-items:flex-end;gap:8px;margin-left:auto}
 .channel-picker label{display:grid;gap:4px;color:var(--muted);font:600 10px var(--sans);letter-spacing:.05em;text-transform:uppercase}
-.channel-picker input{width:160px;min-height:40px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface);padding:0 11px;font:650 14px var(--mono);font-variant-numeric:var(--tab)}
-.channel-picker input:hover,.channel-picker input:focus{border-color:var(--accent)}
+.channel-picker input,.channel-picker select{min-height:40px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--surface);padding:0 11px;font:650 14px var(--mono);font-variant-numeric:var(--tab)}
+.channel-picker input{width:160px}
+.channel-picker select{width:190px;cursor:pointer;font-family:var(--sans)}
+.channel-picker input:hover,.channel-picker input:focus,.channel-picker select:hover,.channel-picker select:focus{border-color:var(--accent)}
 .channel-picker .btn{min-height:40px}
-.channel-error{min-height:16px;color:var(--crit);font:11px var(--sans);text-transform:none;letter-spacing:0}
+.channel-error{flex-basis:100%;min-height:0;color:var(--crit);font:11px var(--sans);text-transform:none;letter-spacing:0;text-align:right}
+.channel-error:empty{display:none}
+@media(max-width:760px){.channel-picker{flex-wrap:wrap;margin-left:0}}
 
 /* ---- live status bar --------------------------------------- */
 .livebar{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:22px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 16px;box-shadow:var(--shadow);margin-bottom:22px}
@@ -352,12 +356,14 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
 <div class="top">
   <div class="brand"><span class="mark">V</span><span id="brandName">Station<small>public ThingSpeak · 24-hour live view</small></span></div>
   <div class="channel-picker" role="group" aria-label="ThingSpeak channel selection">
-    <label>Channel ID
-      <input id="channelInput" type="text" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="e.g. 3448221" aria-describedby="channelError" list="knownChannels">
-      <datalist id="knownChannels"></datalist>
-      <span class="channel-error" id="channelError" aria-live="polite"></span>
+    <label>Station
+      <select id="channelSelect" aria-describedby="channelError"></select>
     </label>
-    <button class="btn" id="channelApply" type="button">Load channel</button>
+    <label id="customChannel" hidden>Channel ID
+      <input id="channelInput" type="text" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="e.g. 3448221" aria-describedby="channelError">
+    </label>
+    <button class="btn" id="channelApply" type="button" hidden>Open</button>
+    <span class="channel-error" id="channelError" aria-live="polite"></span>
   </div>
   <button class="icon-btn" id="theme" aria-label="Toggle color theme" aria-pressed="false">◐</button>
 </div>
@@ -372,7 +378,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
   <div>
     <div class="eyebrow">Environmental monitoring · ThingSpeak channel <span id="channelId"></span></div>
     <h1>Environmental telemetry, live.</h1>
-    <p>Current conditions, data freshness and recent trends from eight environmental measurements.</p>
+    <p>Current conditions, data freshness and recent trends from every measurement this channel publishes.</p>
   </div>
   <aside class="latest-box">
     <span class="k">Latest observation · ICT</span>
@@ -392,7 +398,7 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
 <div class="boundary">Public ThingSpeak observations, not calibrated ground truth. Field names come from the selected channel. Known environmental fields receive broad plausibility checks; unknown fields are displayed without invented units or thresholds. <b id="epochNote"></b></div>
 
 <section class="section">
-  <div class="section-head"><div><span class="index">01 / SIGNALS</span><h2>Eight measurements, one live window</h2></div><p>Select a measurement to inspect the loaded 24-hour signal.</p></div>
+  <div class="section-head"><div><span class="index">01 / SIGNALS</span><h2 id="signalsTitle">Measurements, one live window</h2></div><p>Select a measurement to inspect the loaded 24-hour signal.</p></div>
   <div class="cards" id="cards"><div class="empty">Loading sensor history…</div></div>
 </section>
 
@@ -492,8 +498,14 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
      dataEpochs   : Mốc bắt đầu lấy dữ liệu, THEO TỪNG KÊNH. Mọi quan sát TRƯỚC mốc
                     bị bỏ qua ở khắp nơi: biểu đồ, bảng, và cả file CSV xuất ra.
                     Một trang phục vụ nhiều trạm nên KHÔNG thể dùng chung một mốc.
-                    Viết theo giờ UTC, định dạng "YYYY-MM-DDTHH:MM:SSZ".
 
+                    Mỗi kênh là { "iso": ..., "reason": ... }. `reason` LÀ BẮT BUỘC
+                    về mặt tinh thần: mốc cắt bỏ dữ liệu thật, nên trang phải nói
+                    được VÌ SAO, và lý do của mỗi trạm KHÁC NHAU. Trước đây phần
+                    ghi chú kể lý do của riêng Sài Gòn ("đổi thang đo gió") cho mọi
+                    kênh — đúng loại câu sai mà đọc vẫn xuôi.
+
+                    `iso` viết theo giờ UTC: "YYYY-MM-DDTHH:MM:SSZ".
                     >>> ICT = UTC + 7, nên LẤY GIỜ VIỆT NAM TRỪ ĐI 7 <<<
                        22:30 ICT ngày 21/07  ->  "2026-07-21T15:30:00Z"
                        09:00 ICT ngày 22/07  ->  "2026-07-22T02:00:00Z"
@@ -502,13 +514,11 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
                     Đặt "" (rỗng) để bỏ cắt, dùng lại toàn bộ lịch sử kênh.
                     Nếu đặt mốc ở tương lai, trang sẽ chờ im lặng tới lúc đó.
 
-                    3428136 (Sài Gòn) đã có mốc: thang đo gió đổi /100 -> /10.
-                    3448221 (Bảo Lộc) CHƯA chốt mốc — entry 1..53 của kênh này được
-                    ghi bằng field map của firmware Sài Gòn nên đọc theo nhãn hiện
-                    tại là SAI (gió 100,8 m/s, áp suất 21 kPa). Xem README firmware.
-
      dataStartIso : Mốc mặc định cho kênh không có tên trong dataEpochs.
-     knownChannels: Gợi ý gõ nhanh cho ô Channel ID. KHÔNG phải danh sách hạn chế.
+     knownChannels: Các trạm hiện sẵn trong ô chọn, để không phải nhớ mã channel.
+                    KHÔNG phải danh sách hạn chế — vẫn có mục "Channel khác…" để
+                    gõ bất kỳ ID công khai nào. Thêm trạm mới thì thêm một dòng ở
+                    đây, không phải sửa JavaScript.
 
      historyHours   : Độ dài cửa sổ live, tính ngược từ hiện tại (giờ).
      pollIntervalMs : Nhịp tự làm mới (ms). ThingSpeak Free tối thiểu 15000.
@@ -520,13 +530,19 @@ select:hover,input[type="search"]:hover{border-color:var(--accent)}
   "dataStartIso": "",
 
   "dataEpochs": {
-    "3428136": "2026-07-21T17:17:02Z",
-    "3448221": ""
+    "3428136": {
+      "iso": "2026-07-21T17:17:02Z",
+      "reason": "firmware đổi thang đo gió (/100 → /10); mọi bản ghi trước mốc này thấp hơn 10 lần"
+    },
+    "3448221": {
+      "iso": "2026-08-09T04:41:28Z",
+      "reason": "entry 1–53 ghi bằng field map của firmware Sài Gòn nên đọc theo nhãn hiện tại là sai; entry 54–140 đúng nhãn nhưng là chạy thử tại Sài Gòn (áp suất 100,8 kPa = ngang mực nước biển). Từ entry 141 mới là dữ liệu đo tại Bảo Lộc (90,1 kPa)"
+    }
   },
 
   "knownChannels": [
-    {"id": 3448221, "label": "Bao Loc"},
-    {"id": 3428136, "label": "Sai Gon"}
+    {"id": 3448221, "label": "Bảo Lộc"},
+    {"id": 3428136, "label": "Sài Gòn"}
   ],
 
   "historyHours": 24,
@@ -567,23 +583,46 @@ const C=JSON.parse(document.getElementById('appConfig').textContent),
    returning visitors; a URL parameter always wins. Public channels need no read key. */
 const requestedChannel=new URLSearchParams(location.search).get('channel');
 let storedChannel='';try{storedChannel=localStorage.getItem('thingspeak-channel-id')||''}catch(_){}
+/* Danh tính CẤU HÌNH SẴN, chốt lại TRƯỚC khi URL ghi đè channel id. Tên và bộ field
+   trong khối config chỉ mô tả đúng MỘT kênh; dùng lại chúng cho kênh khác là dán nhãn
+   trạm này lên số liệu trạm kia. Mở ?channel=3428136 từng hiện "MakerLab Bao Loc
+   Station" ngay bên trên ID của Sài Gòn cho tới khi metadata về. */
+const DEFAULT_CHANNEL_ID=C.channel.id;
 const initialChannel=requestedChannel||storedChannel||String(C.channel.id);
 if(/^\d{1,12}$/.test(initialChannel))C.channel.id=Number(initialChannel);
+/* Kênh khác kênh mặc định thì KHÔNG có tên, cho tới khi chính ThingSpeak trả về.
+   "Channel 3428136" là dốt nhưng đúng; tên trạm kia thì sai mà đọc vẫn xuôi. */
+const IS_DEFAULT_CHANNEL=C.channel.id===DEFAULT_CHANNEL_ID;
+if(!IS_DEFAULT_CHANNEL)C.channel.name='';
 
 /* The epoch is PER CHANNEL. One page serving several stations cannot share one cut-off:
    Sài Gòn's boundary is a wind-scaling change, Bảo Lộc's would be a different event on a
    different day, and a channel that is not ours has no boundary at all. dataStartIso is
    only the fallback for channels the map does not mention. */
-const EPOCH_ISO=(C.dataEpochs&&C.dataEpochs[C.channel.id])||C.dataStartIso||'';
+/* Mỗi kênh mang theo LÝ DO cắt của riêng nó. Chấp nhận cả dạng chuỗi trần của cấu
+   hình cũ, để một file config chưa cập nhật không làm trắng trang. */
+const epochRaw=(C.dataEpochs&&C.dataEpochs[C.channel.id])||null,
+      epochCfg=typeof epochRaw==='string'?{iso:epochRaw,reason:''}:(epochRaw||{}),
+      EPOCH_ISO=epochCfg.iso||C.dataStartIso||'',
+      EPOCH_REASON=epochCfg.reason||'';
 
-let F=C.fields,
+/* Bộ tên field trong khối config. Chỉ dùng làm nhãn tạm cho ĐÚNG kênh mặc định
+   trong lúc chờ metadata; mọi kênh khác không được mượn nó. Chốt lại một lần vì
+   commitFieldModel() sẽ thay F liên tục. */
+const FIELD_SEED=C.fields;
+let F={},
     API=`https://api.thingspeak.com/channels/${C.channel.id}/feeds.json`,
     DATA_START=Date.parse(EPOCH_ISO)||0,
     PLAUSIBLE={},
     /* Cache keys for the once-a-second diagnostics path. Declared up here, not next
        to their use, because commitFieldModel() below invalidates them and runs during
        bootstrap — a `let` further down the file would still be in its dead zone. */
-    rowsVersion=0,healthBase=null,healthBaseVersion=-1,cadenceValue=null,cadenceVersion=-1;
+    rowsVersion=0,healthBase=null,healthBaseVersion=-1,cadenceValue=null,cadenceVersion=-1,
+    /* true khi mô hình field đến từ metadata THẬT của kênh. Trước lúc đó, với một
+       kênh không phải kênh mặc định, ta chưa biết nó có bao nhiêu đại lượng - nên
+       không được đếm. 8 là số ô ThingSpeak cấp cho mọi kênh, không phải số đo
+       kênh này có. */
+    fieldsConfirmed=false;
 
 const FIELD_RULES=[
   [/wind.*(direction|bearing)|direction.*wind/i,{role:'windDirection',unit:'°',decimals:0,range:[0,360]}],
@@ -602,12 +641,28 @@ function fieldConfig(name,key){
 }
 /* Split in two on purpose: build the candidate model without touching anything,
    so a channel can be REJECTED before any of it is committed. See applyChannelMetadata. */
-function buildFieldModel(channel={}){
-  const next={};for(let i=1;i<=8;i++){const key=`field${i}`,name=channel[key]||F[key]?.name||key;next[key]=fieldConfig(name,key)}
+/* `channel` = metadata THẬT của kênh; bỏ trống = chưa fetch xong.
+   ThingSpeak KHÔNG trả về field mà kênh không dùng, nên field vắng mặt phải bị LOẠI
+   khỏi mô hình. Trước đây nó rơi về `F[key]?.name` — tức mô hình của kênh TRƯỚC ĐÓ —
+   nên một kênh log biến tần khai 3 field vẫn hiện ra "Wind speed m/s", "PM2.5 µg/m³",
+   "Pressure kPa": có đơn vị, có dải hợp lý, có dòng trong bảng sức khoẻ, và đi thẳng
+   vào header CSV. Trang tự hứa ngược lại điều đó ở khung cảnh báo đầu trang.
+
+   F chỉ chứa field CÓ THẬT, nên mọi nơi đọc Object.keys(F)/entries(F) tự thu hẹp
+   theo: thẻ tín hiệu, ô chọn, bảng, bảng sức khoẻ, CSV. */
+function buildFieldModel(channel){
+  const seed=channel?null:(IS_DEFAULT_CHANNEL?FIELD_SEED:null),next={};
+  for(let i=1;i<=8;i++){
+    const key=`field${i}`,name=channel?channel[key]:(seed&&seed[key]&&seed[key].name);
+    if(name)next[key]=fieldConfig(name,key);
+  }
+  /* Kênh không đặt tên field nào: hiện trần field1..field8 thay vì trang rỗng.
+     Tên trần không bịa gì cả — vẫn không đơn vị, không dải, không vai trò. */
+  if(!Object.keys(next).length)for(let i=1;i<=8;i++){const key=`field${i}`;next[key]={name:key,unit:'',decimals:2,role:null,range:null}}
   return next;
 }
 function commitFieldModel(next){
-  F=next;C.fields=next;PLAUSIBLE=Object.fromEntries(Object.entries(F).filter(([,cfg])=>cfg.range).map(([key,cfg])=>[key,cfg.range]));
+  F=next;PLAUSIBLE=Object.fromEntries(Object.entries(F).filter(([,cfg])=>cfg.range).map(([key,cfg])=>[key,cfg.range]));
   rebuildStationModel();
   healthBaseVersion=-1;   // names, ranges and grouping all feed the cached half
 }
@@ -653,6 +708,14 @@ function renderChannelIdentity(){
   $('#brandName').childNodes[0].nodeValue=(C.channel.name||`Channel ${C.channel.id}`)+' ';
   $('#channelId').textContent=C.channel.id;$('#channelName').textContent=C.channel.name||'Public channel';$('#footerChannel').textContent=C.channel.id;
   $('#channelInput').value=String(C.channel.id);
+  /* Số đo lấy từ mô hình field thật, không phải con số 8 viết cứng trong markup -
+     và chỉ đếm khi đã BIẾT, tức là metadata của kênh đã về (hoặc đây đúng là kênh
+     mà khối config mô tả). */
+  const n=Object.keys(F).length;
+  $('#signalsTitle').textContent=(fieldsConfirmed||IS_DEFAULT_CHANNEL)
+    ?`${n} measurement${n>1?'s':''}, one live window`
+    :'Measurements, one live window';
+  syncChannelPicker();
 }
 function populateMetric(preferred){
   const sel=$('#metric'),fallback=roleKey('temperature')||Object.keys(F)[0],selected=preferred&&F[preferred]?preferred:fallback;
@@ -669,13 +732,48 @@ function applyChannelMetadata(channel){
   C.channel.name=String(channel.name||C.channel.name||`Channel ${C.channel.id}`);
   C.channel.created_at=channel.created_at||C.channel.created_at||'';
   const selected=$('#metric').value;
+  fieldsConfirmed=true;
   commitFieldModel(buildFieldModel(channel));renderChannelIdentity();populateMetric(selected);renderTableHead();
+}
+/* ---- chọn trạm -------------------------------------------------------------
+   Hai trạm nhà mình hiện sẵn theo TÊN nên không phải nhớ mã channel; mục cuối mở
+   ô gõ ID cho mọi kênh công khai khác. Danh sách lấy từ `knownChannels` trong khối
+   config phía trên — thêm trạm là thêm một dòng ở đó, không đụng vào JavaScript,
+   và không có mã channel nào nằm rải rác trong code. Nó là lối tắt, KHÔNG phải
+   danh sách hạn chế: mọi ID hợp lệ vẫn mở được. */
+const OTHER_CHANNEL='__other__';
+const knownChannel=id=>(C.knownChannels||[]).find(entry=>Number(entry.id)===Number(id))||null;
+function populateChannelPicker(){
+  const sel=$('#channelSelect');sel.innerHTML='';
+  (C.knownChannels||[]).forEach(entry=>{
+    const option=document.createElement('option');
+    option.value=String(entry.id);option.textContent=`${entry.label||'Channel'} · ${entry.id}`;
+    sel.append(option);
+  });
+  const other=document.createElement('option');
+  other.value=OTHER_CHANNEL;other.textContent='Another channel…';
+  sel.append(other);
+}
+function showCustomChannel(show){
+  $('#customChannel').hidden=!show;$('#channelApply').hidden=!show;
+}
+/* Giữ ô chọn khớp với kênh đang mở. Kênh lạ thì chọn "Another channel…" và để ô gõ
+   hiện sẵn ID đó, nên người dùng luôn thấy mình đang ở đâu. */
+function syncChannelPicker(){
+  const sel=$('#channelSelect');
+  if(!sel.children.length)return;              // chưa populate xong
+  const known=!!knownChannel(C.channel.id);
+  sel.value=known?String(C.channel.id):OTHER_CHANNEL;
+  showCustomChannel(!known);
+}
+function openChannel(value){
+  try{localStorage.setItem('thingspeak-channel-id',value)}catch(_){}
+  const url=new URL(location.href);url.searchParams.set('channel',value);location.assign(url.href);
 }
 function loadChannelFromInput(){
   const value=$('#channelInput').value.trim(),error=$('#channelError');
   if(!/^\d{1,12}$/.test(value)||Number(value)<1){error.textContent='Enter a numeric public Channel ID.';$('#channelInput').focus();return}
-  error.textContent='';try{localStorage.setItem('thingspeak-channel-id',value)}catch(_){}
-  const url=new URL(location.href);url.searchParams.set('channel',value);location.assign(url.href);
+  error.textContent='';openChannel(value);
 }
 
 let rows=[],lastKnownOnly=false,pollTimer=null,countdownTimer=null,nextPoll=0,busy=false,disposed=false,connectionState='loading',
@@ -690,6 +788,9 @@ const $=s=>document.querySelector(s),
       shortTime=(ms,z)=>dateFormatter(z,true).format(new Date(ms)).replace(',','');
 
 /* ---- config bootstrap ---- */
+/* Trước renderChannelIdentity(): nó gọi syncChannelPicker(), mà cái đó cần các
+   option đã có sẵn mới chọn đúng được. */
+populateChannelPicker();
 renderChannelIdentity();
 $('#windowLabel').textContent=C.historyHours+' h';
 /* The epoch is the only thing that keeps records from an earlier deployment out of the
@@ -699,7 +800,10 @@ $('#windowLabel').textContent=C.historyHours+' h';
    that are wrong but perfectly readable are the expensive kind, so say so on both the
    boundary note and the export menu rather than letting the label imply a cut-off. */
 if(DATA_START){
-  $('#epochNote').textContent=`Data epoch ${time(DATA_START,'Asia/Ho_Chi_Minh')} ICT — station reinstall and firmware update. Earlier observations came from a different firmware build (different wind scaling) and are excluded everywhere, including CSV export.`;
+  /* Lý do lấy theo TỪNG kênh. Câu cũ kể chuyện của riêng Sài Gòn ("đổi thang đo
+     gió") cho mọi kênh, và sẽ thành sai ngay khi Bảo Lộc được chốt mốc — lý do ở
+     đó là field map khác hẳn, không liên quan gì tới thang đo gió. */
+  $('#epochNote').textContent=`Data epoch ${time(DATA_START,'Asia/Ho_Chi_Minh')} ICT — records before this instant are excluded everywhere, including CSV export.`+(EPOCH_REASON?` Lý do: ${EPOCH_REASON}.`:'');
 }else{
   $('#epochNote').textContent='No data epoch is set, so every record the channel has ever held is shown and exported. If the station was ever bench-tested or ran an earlier firmware build, those rows appear here under the current field labels.';
   $('#dlOptAllTitle').textContent='Entire channel history';
@@ -710,13 +814,6 @@ $('#theme').onclick=()=>{document.documentElement.classList.toggle('dark');const
 
 populateMetric();
 
-/* Our own stations as type-ahead suggestions. Any numeric channel ID still works —
-   this is a shortcut, not a whitelist, so nothing here narrows what the page accepts. */
-(C.knownChannels||[]).forEach(entry=>{
-  const option=document.createElement('option');
-  option.value=String(entry.id);option.label=entry.label||'';
-  $('#knownChannels').append(option);
-});
 
 /* ============================================================
    DATA MODEL
@@ -1017,11 +1114,14 @@ $('#focusChart').addEventListener('keydown',ev=>{
 const PAGE=50;
 function filtered(){const query=$('#search').value.trim(),view=[...rows].reverse();return query?view.filter(row=>String(row.id)===query):view}
 function renderTableHead(){$('#dataTableHead').innerHTML='<th>Entry</th><th>Time (ICT)</th><th>Time (UTC)</th>'+Object.values(F).map(cfg=>`<th>${escHtml(cfg.name)}${cfg.unit?' '+escHtml(cfg.unit):''}</th>`).join('')}
+/* Entry + hai cột thời gian + số field kênh này THỰC SỰ có. Trước đây là 11 cứng,
+   tức là luôn giả định đúng 8 field — sai với mọi kênh không phải trạm nhà mình. */
+const tableCols=()=>3+Object.keys(F).length;
 function renderTable(){
   const data=filtered(),pages=Math.max(1,Math.ceil(data.length/PAGE));
   page=Math.min(page,pages-1);
   const slice=data.slice(page*PAGE,(page+1)*PAGE);
-  $('#dataTable tbody').innerHTML=slice.length?slice.map(row=>`<tr><td>${row.id}</td><td>${time(row.t,'Asia/Ho_Chi_Minh')}</td><td>${time(row.t,'UTC')}</td>${Array.from({length:8},(_,i)=>{const key=`field${i+1}`,value=row[key],invalid=Number.isFinite(value)&&!usable(key,value);return`<td class="${invalid?'invalid':''}" ${invalid?'title="Outside broad plausibility range"':''}>${fmt(value,F[key].decimals)}</td>`}).join('')}</tr>`).join(''):'<tr><td colspan="11" style="text-align:center;color:var(--muted)">No matching entry ID.</td></tr>';
+  $('#dataTable tbody').innerHTML=slice.length?slice.map(row=>`<tr><td>${row.id}</td><td>${time(row.t,'Asia/Ho_Chi_Minh')}</td><td>${time(row.t,'UTC')}</td>${Object.entries(F).map(([key,cfg])=>{const value=row[key],invalid=Number.isFinite(value)&&!usable(key,value);return`<td class="${invalid?'invalid':''}" ${invalid?'title="Outside broad plausibility range"':''}>${fmt(value,cfg.decimals)}</td>`}).join('')}</tr>`).join(''):`<tr><td colspan="${tableCols()}" style="text-align:center;color:var(--muted)">No matching entry ID.</td></tr>`;
   $('#pageLabel').textContent=`${page+1} / ${pages} · ${data.length.toLocaleString()} rows`;
   $('#prev').disabled=page===0;$('#next').disabled=page>=pages-1;
 }
@@ -1034,7 +1134,7 @@ function csvParts(source){
   const esc=v=>{if(v==null)return'';const s=String(v);return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s},
     header=['entry_id','timestamp_utc_iso','time_ict',...Object.values(F).map(cfg=>`${cfg.name} (${cfg.unit})`),'firmware_status'],
     parts=['﻿'+header.map(esc).join(',')+'\r\n'];
-  let lines=[];source.forEach((row,index)=>{lines.push([row.id,new Date(row.t).toISOString(),time(row.t,'Asia/Ho_Chi_Minh'),...Array.from({length:8},(_,i)=>row[`field${i+1}`]),row.status].map(esc).join(','));if(lines.length===5000||index===source.length-1){parts.push(lines.join('\r\n')+'\r\n');lines=[]}});
+  let lines=[];source.forEach((row,index)=>{lines.push([row.id,new Date(row.t).toISOString(),time(row.t,'Asia/Ho_Chi_Minh'),...Object.keys(F).map(key=>row[key]),row.status].map(esc).join(','));if(lines.length===5000||index===source.length-1){parts.push(lines.join('\r\n')+'\r\n');lines=[]}});
   return parts; // chunked to avoid building one additional full-size CSV string
 }
 function saveCSV(source){
@@ -1112,7 +1212,7 @@ function updateOverview(){
       ?`Waiting for the data epoch — the first records appear after ${time(DATA_START,'Asia/Ho_Chi_Minh')} ICT.`
       :'No records loaded yet.';
     $('#cards').innerHTML=`<div class="empty"></div>`;$('#cards .empty').textContent=blank;
-    $('#dataTable tbody').innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--muted)"></td></tr>';$('#dataTable tbody td').textContent=blank;
+    $('#dataTable tbody').innerHTML=`<tr><td colspan="${tableCols()}" style="text-align:center;color:var(--muted)"></td></tr>`;$('#dataTable tbody td').textContent=blank;
     $('#pageLabel').textContent='0 rows';$('#focusChart').innerHTML='';$('#overviewChart').innerHTML='';$('#detailStats').innerHTML='';
     $('#selectionLabel').textContent='No records available';$('#windowPosition').disabled=true;$('#windowPrev').disabled=true;$('#windowNext').disabled=true;focusGeom=null;overviewGeom=null;renderDiagnostics();refreshStatus();return;
   }
@@ -1161,7 +1261,7 @@ async function fetchLatest(signal){
 function initialError(message){
   $('#cards').innerHTML='<div class="empty"><div><b>Could not load station history.</b><br><span data-error-detail></span><br><button class="btn" data-retry style="margin-top:12px">Try again</button></div></div>';
   $('#cards [data-error-detail]').textContent=message;$('#cards [data-retry]').onclick=()=>poll(true);
-  $('#dataTable tbody').innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--muted)">No records loaded. Use Refresh now to retry.</td></tr>';
+  $('#dataTable tbody').innerHTML=`<tr><td colspan="${tableCols()}" style="text-align:center;color:var(--muted)">No records loaded. Use Refresh now to retry.</td></tr>`;
   $('#pageLabel').textContent='0 rows';
 }
 function schedule(started=Date.now()){
@@ -1221,7 +1321,18 @@ function logFetch(ok,detail,ms,added){fetchLog.push({t:Date.now(),ok,detail,ms,a
    "BOOT." status, so when that is present it is authoritative. Older records
    predate the heartbeat build, and fall back to the observed signature: temperature,
    humidity and light all exactly 0 because the sensor had not warmed up yet. */
-const ZERO_SIGNATURE=row=>row.field1===0&&row.field2===0&&row.field3===0;
+/* Khoá theo VAI TRÒ, không theo số field. Đây là chỗ CUỐI CÙNG trong file còn khoá
+   theo số field, và nó đọc sai ở Sài Gòn: field1/2/3 ở đó là tốc độ gió, hướng gió
+   và nhiệt độ. Hệ quả đo được, sai cả hai chiều:
+     - một đêm lặng gió (gió 0, hướng 0) chỉ cách việc bị báo là "cảm biến vừa mất
+       điện" đúng một lần nhiệt độ đọc ra 0;
+     - còn cú warm-up THẬT ở Sài Gòn — nhiệt độ field3, độ ẩm field6, sáng field5 —
+       thì không bao giờ được nhận ra, nên verdict "Sensor power-cycled recently"
+       chưa từng chạy được trên trạm đó.
+   Kênh không phân giải đủ ba vai trò thì trả về false: không có cơ sở để kết luận,
+   và đoán bừa ở đây đẻ ra một sự kiện không có thật trong nhật ký trạm. */
+const WARMUP_ROLES=['temperature','humidity','light'];
+const ZERO_SIGNATURE=row=>WARMUP_ROLES.map(roleKey).every(key=>key&&row[key]===0);
 /* The firmware tags its first upload after a reset with the reset cause, so the three
    restarts that need three different responses stay apart in this log:
      BOOT.        no cause attached
@@ -1419,7 +1530,10 @@ function verdict(){
      SEN0658 datasheet, because their job is to catch a garbage frame, not to certify a
      reading. Calling them datasheet limits would promise a calibration this page has
      never done — and the boundary note above already calls them plausibility checks. */
-  return{level:'ok',title:'Station healthy',detail:`Uploading every ${fmtDur(cadence)}, newest record ${fmtDur(age)} old, all eight sensors answering inside the broad plausibility ranges this page applies. Those are sanity limits, not calibration.`};
+  /* Đếm từ mô hình field thật. Con số 8 từng viết cứng vào câu này, nên một kênh
+     ba field vẫn được thông báo là đủ tám cảm biến đều trả lời. */
+  const n=Object.keys(F).length;
+  return{level:'ok',title:'Station healthy',detail:`Uploading every ${fmtDur(cadence)}, newest record ${fmtDur(age)} old, all ${n} sensor${n>1?'s':''} answering inside the broad plausibility ranges this page applies. Those are sanity limits, not calibration.`};
 }
 function renderVerdict(){const v=verdict();$('#diagVerdict').dataset.level=v.level;$('#diagTitleText').textContent=v.title;$('#diagDetail').textContent=v.detail}
 function renderDiagnostics(){
@@ -1491,6 +1605,11 @@ function diagnosticReport(){
    ============================================================ */
 $('#prev').onclick=()=>{if(page){page--;renderTable()}};
 renderTableHead();
+$('#channelSelect').onchange=()=>{
+  const value=$('#channelSelect').value;
+  if(value===OTHER_CHANNEL){showCustomChannel(true);$('#channelError').textContent='';$('#channelInput').focus();return}
+  openChannel(value);
+};
 $('#channelApply').onclick=loadChannelFromInput;
 $('#channelInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();loadChannelFromInput()}});
 $('#channelInput').addEventListener('input',()=>{$('#channelError').textContent=''});

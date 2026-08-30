@@ -40,7 +40,8 @@ except ImportError:
 
 # Wi-Fi và ThingSpeak Write API Key nằm ở station_secrets.py, KHÔNG nằm ở file này.
 # File này thường được chia sẻ / dán vào chat, nên không được chứa bí mật.
-# => Phải upload CẢ HAI file lên board: siuuuu.py và station_secrets.py
+# => Phải upload CẢ HAI file lên board: file này (đổi tên thành main.py)
+#    và station_secrets.py
 try:
     from station_secrets import WIFI_SSID, WIFI_PASSWORD
 except ImportError:
@@ -139,6 +140,15 @@ uart = UART(
 READ_WIND = True
 DEBUG_WIND = False
 
+# False = che do debug local: van doc Modbus + cap nhat LCD, bo qua hoan toan
+# Wi-Fi/ThingSpeak. True = upload sau khi LCD da hien snapshot moi nhat.
+#
+# Truoc day file nay NHAC toi CLOUD_UPLOAD_ENABLED o chu thich cua LINK_OFF
+# nhung KHONG he khai bao no: LINK_OFF thanh code chet, va tram Sai Gon khong
+# co cach tat duong cloud de soi rieng duong Modbus + LCD - trong khi Bao Loc
+# co. Hai tram phai debug duoc nhu nhau.
+CLOUD_UPLOAD_ENABLED = True
+
 # Dưới ngưỡng này coi là lặng gió, không hiện hướng.
 # 0.5 m/s = start wind speed theo datasheet SEN0658. Giữ khớp với dashboard.
 CALM_MS = 0.5
@@ -166,11 +176,18 @@ CALM_MS = 0.5
 
 # Trần thời gian cho một lần POST.
 #
-# ĐO TRÊN BOARD THẬT 2026-07-22: `requests.post(timeout=15)` KHÔNG tạo ra hạn
-# chót cứng cho TLS. Full firmware vẫn kẹt trong `tls.SSLContext.wrap_socket()`
-# SAU khi DNS và TCP đã xong, quá mốc 15 s này. Nên đừng mô tả nó như bản vá cho
-# kịch bản treo - nó chỉ chặn được DNS, TCP connect và giai đoạn đọc.
-# Với cú treo trong handshake, watchdog mới là thứ duy nhất còn tác dụng.
+# ĐO NGÀY 2026-07-22 TRÊN TRẠM SÀI GÒN (ESP32-WROOM, MicroPython v1.26.1,
+# runtime tự khai là `ESP32_GENERIC`): `requests.post(timeout=15)` KHÔNG tạo ra
+# hạn chót cứng cho TLS. Full firmware vẫn kẹt trong
+# `tls.SSLContext.wrap_socket()` SAU khi DNS và TCP đã xong, quá mốc 15 s này.
+# Nên đừng mô tả nó như bản vá cho kịch bản treo - nó chỉ chặn được DNS,
+# TCP connect và giai đoạn đọc. Với cú treo trong handshake, watchdog mới là
+# thứ duy nhất còn tác dụng.
+#
+# PHẠM VI CỦA PHÉP ĐO: nó chạy trên ESP32-WROOM. Trạm Bảo Lộc là ESP32-S3-
+# chip khác, build khác, heap khác - và CHƯA từng đo lại trên đó. Áp kết luận
+# sang S3 là giả định THẬN TRỌNG (chọn hướng an toàn), không phải phép đo.
+# Muốn biết board đang cầm thật sự cư xử thế nào: chạy firmware/self_check.py.
 HTTP_TIMEOUT_S = 15
 
 WATCHDOG_ENABLED = True
@@ -1068,6 +1085,97 @@ def send_to_thingspeak(field_values, status=""):
         gc.collect()
 
 
+# ========== SHARED-SENSOR-PLAUSIBILITY BEGIN ==========
+# KHỐI NÀY GIỐNG HỆT Ở MỌI FILE FIRMWARE TRẠM. Đừng sửa tay ở một file.
+# Sửa trong "bao_loc.py" rồi chạy:  py -3 firmware/sync_shared_blocks.py
+#
+# =========================================================
+# DẢI HỢP LÝ - để LCD nói thật khi cảm biến trả về số vô lý
+# =========================================================
+#
+# ĐÂY KHÔNG PHẢI DẢI THEO DATASHEET, và không được gọi như vậy. Nó CỐ Ý rộng
+# hơn datasheet SEN0658. Việc của nó là bắt một khung dữ liệu rác, KHÔNG phải
+# chứng nhận một phép đo là đúng. Trạm này chưa từng được hiệu chuẩn.
+#
+# VÌ SAO CẦN: CRC chỉ chứng minh khung tin không bị hỏng trên đường truyền, nó
+# KHÔNG chứng minh con số bên trong có nghĩa. Một thanh ghi u16 đầy (65535) đi
+# qua CRC ngon lành, rồi firmware chia 10 thành 6553.5 kPa. Trước bản vá này
+# màn hình cắt nó thành "P655" - một con số SAI mà đọc vẫn xuôi, tệ hơn hẳn
+# việc không hiện gì.
+#
+# Giữ khớp với FIELD_RULES trong public/index.html. Hai nơi cùng một câu
+# chuyện thì người đọc mới tin được cả hai.
+#
+# PHẠM VI: khối này CHỈ đổi thứ hiện trên LCD. Giá trị ngoài dải VẪN được đẩy
+# nguyên vẹn lên ThingSpeak, và đó là CHỦ Ý, không phải sót:
+#
+#   - LCD là để một người đang đứng tại trạm đọc trong vài giây. Ở đó, "6553.5"
+#     tệ hơn "!!!" vì nó trông như một phép đo.
+#   - Cloud là bản ghi. Lọc ở firmware nghĩa là XOÁ bằng chứng của chính cú hỏng
+#     mình đang muốn truy, và tạo ra một khoảng trống không phân biệt được với
+#     "cảm biến không trả lời". Dashboard có sẵn dải hợp lý riêng, tự đánh dấu
+#     ô đó và đếm vào "Flagged values" - vẫn nhìn thấy, mà không mất số gốc.
+#
+# Đổi ý ở đây thì phải đổi ý ở CẢ HAI nơi, và phải hỏi trước.
+PLAUSIBLE = {
+    "temperature": (-45.0, 85.0),
+    "humidity": (0.0, 100.0),
+    "noise": (25.0, 125.0),
+    "pm2_5": (0, 1100),
+    "pm10": (0, 1100),
+    "pressure": (30.0, 120.0),
+    "light": (0, 200000),
+    "wind_speed": (0.0, 45.0),
+    "wind_angle": (0, 360),
+}
+
+# Hiện thay cho con số khi giá trị nằm ngoài dải. Ba ký tự, cố định, nên bố cục
+# LCD tính trước được và không bao giờ chạm lưới an toàn của pad_row.
+#
+# Phải KHÁC "--". Hai tình huống này cần hai cách xử lý khác hẳn nhau:
+#   "--"   lệnh Modbus không trả lời  -> nghi dây RS485, nguồn cảm biến
+#   "!!!"  có trả lời, số vô nghĩa    -> cảm biến còn sống nhưng đang nói bậy
+OUT_OF_RANGE = "!!!"
+
+
+def sane(name, value):
+    """
+    True nếu `value` nằm trong dải hợp lý của đại lượng `name`.
+
+    None -> False (người gọi tự phân biệt "không đọc được" với "số vô lý").
+    Tên lạ -> True: không có dải thì không có cơ sở để bác bỏ, và bịa ra một
+    ngưỡng ở đây còn tệ hơn là để lọt.
+    """
+
+    if value is None:
+        return False
+
+    bounds = PLAUSIBLE.get(name)
+
+    if bounds is None:
+        return True
+
+    return bounds[0] <= value <= bounds[1]
+
+
+def show(name, value, template, missing="--"):
+    """
+    Chuỗi hiện trên LCD cho một trường: số thật, "--", hoặc "!!!".
+
+    Đây là chỗ DUY NHẤT quyết định ba trạng thái đó, nên hai firmware không thể
+    trôi khỏi nhau ở phần người đứng tại trạm thực sự nhìn vào.
+    """
+
+    if value is None:
+        return missing
+
+    if not sane(name, value):
+        return OUT_OF_RANGE
+
+    return template.format(value)
+# ========== SHARED-SENSOR-PLAUSIBILITY END ==========
+
+
 # =========================================================
 # LCD DRIVER + LAYOUT
 # =========================================================
@@ -1323,8 +1431,16 @@ def lcd_lines(temperature, pm2_5, light, wind_speed, wind_angle, link=""):
 
     if wind_speed is None:
         left, right = "Wind", "-- ERR"
-    elif wind_speed <= CALM_MS or wind_angle is None:
+    elif not sane("wind_speed", wind_speed):
+        # Co tra loi nhung toc do vo ly. KHONG duoc hien "CALM": lang gio la mot
+        # KET LUAN, con day la "khong biet". Hai thu do khong duoc trong giong nhau.
+        left, right = "Wind", OUT_OF_RANGE
+    elif wind_speed <= CALM_MS:
         left, right = "{:.1f}m/s".format(wind_speed), "CALM"
+    elif wind_angle is None or not sane("wind_angle", wind_angle):
+        # Toc do tin duoc, huong thi khong. Truoc day ca hai truong hop nay deu
+        # hien "CALM", tuc la mot goc hong bi ke lai thanh mot dem lang gio.
+        left, right = "{:.1f}m/s".format(wind_speed), OUT_OF_RANGE
     else:
         left = "{:.1f}m/s {}".format(wind_speed, compass(wind_angle))
         right = "{:.0f}{}".format(wind_angle, DEGREE)
@@ -1340,18 +1456,26 @@ def lcd_lines(temperature, pm2_5, light, wind_speed, wind_angle, link=""):
     # Bậc cuối bỏ tiền tố "L" là bậc THÊM VÀO khi có ký tự link: trường hợp xấu
     # nhất "-12C P1000" + "200k" + link vừa đúng 16 cột. Thiếu bậc này thì lưới
     # an toàn của pad_row sẽ cắt, và cắt là thứ cả hàm này tồn tại để tránh.
+    # Anh sang khong phu thuoc bac rut gon nen tinh mot lan o ngoai vong lap.
+    if light is None:
+        lux_txt = "--"
+    elif not sane("light", light):
+        lux_txt = OUT_OF_RANGE
+    else:
+        lux_txt = fmt_lux(light)
+
     for temp_fmt, pm_prefix, lux_prefix in (
         ("{:.1f}C", "PM", "L"),
         ("{:.0f}C", "PM", "L"),
         ("{:.0f}C", "P",  "L"),
         ("{:.0f}C", "P",  "")
     ):
-        temp_txt = "--" if temperature is None else temp_fmt.format(temperature)
-        pm_txt = pm_prefix + ("--" if pm2_5 is None else str(pm2_5))
+        temp_txt = show("temperature", temperature, temp_fmt)
+        pm_txt = pm_prefix + show("pm2_5", pm2_5, "{}")
         left = temp_txt + " " + pm_txt
 
         # Tiền tố L để số bên phải không bị đọc nhầm là một phần của PM
-        right_txt = lux_prefix + fmt_lux(light) + link
+        right_txt = lux_prefix + lux_txt + link
 
         if len(left) + 1 + len(right_txt) <= LCD_COLS:
             break
@@ -1423,7 +1547,7 @@ first_cycle_done = False
 
 # Trạng thái đường lên cloud, giữ NGUYÊN qua các chu kỳ: nó mô tả lần upload
 # gần nhất, không phải chu kỳ hiện tại, nên không được reset đầu vòng lặp.
-link = LINK_PENDING
+link = LINK_PENDING if CLOUD_UPLOAD_ENABLED else LINK_OFF
 last_good_upload = ticks_ms()
 
 
@@ -1595,6 +1719,8 @@ while True:
     current_time = ticks_ms()
 
     if (
+        CLOUD_UPLOAD_ENABLED
+        and
         ticks_diff(current_time, last_upload)
         >= UPLOAD_INTERVAL_MS
     ):
@@ -1661,6 +1787,7 @@ while True:
     # duoc lam ly do reset, vi nhu vay la bat LCD chiu phat thay cho router.
     if (
         UPLOAD_STALL_RESET_MS
+        and CLOUD_UPLOAD_ENABLED
         and ticks_diff(ticks_ms(), last_good_upload) >= UPLOAD_STALL_RESET_MS
     ):
         print()

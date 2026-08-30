@@ -5,6 +5,7 @@ machine/network/requests/ntptime bi stub. Cac ham thuan duoc kiem tra that.
 
 Chay:  py -3 test_firmware.py
 """
+import re
 import sys
 import types
 import time as _time
@@ -138,6 +139,15 @@ SNAPSHOTS = [
     ("typical", {"temperature": 25.1, "humidity": 77.0, "noise": 45.0,
                  "pm2_5": 5, "pm10": 15, "pressure": 90.0,
                  "light": 32201, "wind_speed": 1.3, "wind_angle": 217.0}),
+    # Thanh ghi u16 day. Mot khung Modbus DUNG CRC van mang duoc gia tri nay -
+    # CRC chi chung minh khung khong hong tren duong truyen, khong chung minh
+    # con so co nghia. "worst" o tren toan gia tri HOP LY nen khong cham toi
+    # duoc duong nay; thieu no thi LCD tung cat 65535 thanh "655" va nuot luon
+    # ky tu bao trang thai cloud ma khong test nao keu.
+    ("u16-glitch", {"temperature": 6553.5, "humidity": 6553.5, "noise": 6553.5,
+                    "pm2_5": 65535, "pm10": 65535, "pressure": 6553.5,
+                    "light": 4294967295, "wind_speed": 6553.5,
+                    "wind_angle": 65535}),
 ]
 
 GROUPS = ["THN", "LUX", "PM", "WIND"]
@@ -180,9 +190,19 @@ for st in STATIONS:
                       len(r) <= st["cols"], "len=%d %r" % (len(r), r))
             check("%s LCD link o cuoi [%s/%r]" % (tag, label, repr(link)),
                   rows[-1].endswith(link), repr(rows[-1]))
+            if label == "u16-glitch":
+                joined = "".join(rows)
+                # Phai NOI RA la so vo ly, chu khong duoc im lang hien so cat cut.
+                check("%s LCD danh dau ngoai dai [%r]" % (tag, link),
+                      fw.OUT_OF_RANGE in joined, repr(rows))
+                # "655" = 6553.5 bi cat; "4294967" = lux bi cat. Ca hai deu doc
+                # duoc nhu so that, va do moi la kieu sai dat tien nhat.
+                for fragment in ("655", "4294967"):
+                    check("%s LCD khong hien so bi cat %r [%r]" % (tag, fragment, link),
+                          fragment not in joined, repr(rows))
 
     print("\n=== %s (%dx%d) ===" % (tag, st["cols"], st["rows"]))
-    for label in ("typical", "worst", "all-none"):
+    for label in ("typical", "worst", "u16-glitch", "all-none"):
         snap = dict(SNAPSHOTS)[label]
         link = fw.LINK_OK if label != "all-none" else fw.LINK_NO_WIFI
         print("  %s:" % label)
@@ -270,6 +290,18 @@ for st in STATIONS:
           fw.WIFI_RETRIES * fw.WIFI_TIMEOUT_MS <= 8000,
           "%d ms" % (fw.WIFI_RETRIES * fw.WIFI_TIMEOUT_MS))
     check("%s http_post ton tai" % tag, callable(fw.http_post))
+
+    # ---- 7. self_check.py goi vao firmware bang TEN CHUOI ----
+    # exec() khong duoc kiem kieu, nen mot cai ten go sai hoac mot ham bi doi
+    # ten se chi vo ra tren BOARD - dung noi te nhat de phat hien. Doi chieu
+    # o day de no vo tren PC truoc.
+    sc_src = (FW / "self_check.py").read_text(encoding="utf-8")
+    compile(sc_src, "self_check.py", "exec")
+    wanted = set(re.findall(r'firmware\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\]', sc_src))
+    wanted |= set(re.findall(r'firmware\.get\(\s*"([A-Za-z_][A-Za-z0-9_]*)"', sc_src))
+    for name in sorted(wanted):
+        check("%s self_check.py can '%s'" % (tag, name), hasattr(fw, name),
+              "firmware nay khong co '%s'" % name)
 
 print("\n%d PASS, %d FAIL" % (ok, len(fail)))
 for f in fail:
